@@ -16,6 +16,8 @@ interface SaleRow {
   quantity: number; unit_price: number;
 }
 
+export const dynamic = "force-dynamic";
+
 export async function GET(request: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

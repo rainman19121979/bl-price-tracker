@@ -13,6 +13,8 @@ interface ValueRow {
   stock_qty_avg_value: number;
 }
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   const session = await auth();
   if (!session?.user?.id) {

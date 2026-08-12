@@ -6,6 +6,8 @@ import { BrickLinkClient } from "@/lib/bricklink-api";
 import { validatePartParams } from "@/lib/validate-params";
 import { getUsage, logApiCall } from "@/lib/api-usage";
 
+export const dynamic = "force-dynamic";
+
 export async function POST(
   request: NextRequest,
   { params }: { params: { partNo: string; colorId: string } }

@@ -26,6 +26,8 @@ interface StockStats {
   total_quantity: number;
 }
 
+export const dynamic = "force-dynamic";
+
 export async function GET(
   _request: NextRequest,
   { params }: { params: { partNo: string; colorId: string } }

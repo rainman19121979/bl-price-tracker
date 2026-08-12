@@ -5,6 +5,8 @@ import { apiKeySchema } from "@/lib/validators";
 import { encrypt } from "@/lib/encryption";
 import { getUsageByKey } from "@/lib/api-usage";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   const session = await auth();
   if (!session?.user?.id) {

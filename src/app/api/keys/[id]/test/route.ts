@@ -5,6 +5,8 @@ import { decrypt } from "@/lib/encryption";
 import { BrickLinkClient, BrickLinkApiError } from "@/lib/bricklink-api";
 import { rateLimit } from "@/lib/rate-limit";
 
+export const dynamic = "force-dynamic";
+
 export async function POST(
   _request: NextRequest,
   { params }: { params: { id: string } }

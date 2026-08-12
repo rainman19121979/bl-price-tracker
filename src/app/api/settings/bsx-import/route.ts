@@ -3,6 +3,8 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { importBsxDirectory } from "@/lib/bsx-orders";
 
+export const dynamic = "force-dynamic";
+
 export const maxDuration = 300;
 
 export async function POST() {

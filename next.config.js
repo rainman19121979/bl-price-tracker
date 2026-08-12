@@ -1,5 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Standalone output packs only the required deps + code into
+  // .next/standalone — the Docker runtime image ships that and skips
+  // the full node_modules tree (~1.5GB → ~200MB).
+  output: 'standalone',
   images: {
     remotePatterns: [
       { protocol: 'https', hostname: 'img.bricklink.com' },

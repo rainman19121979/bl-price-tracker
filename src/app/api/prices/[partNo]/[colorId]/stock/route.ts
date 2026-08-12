@@ -4,6 +4,8 @@ import { prisma } from "@/lib/db";
 import { validatePartParams } from "@/lib/validate-params";
 import { findPart } from "@/lib/find-part";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(
   request: NextRequest,
   { params }: { params: { partNo: string; colorId: string } }

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { authenticateBearer, getApiUsageFor } from "@/lib/external-price";
 import { recomputeAllLotsForUser } from "@/lib/lot-pricing";
 
+export const dynamic = "force-dynamic";
+
 export const maxDuration = 120;
 
 export async function POST(request: NextRequest) {

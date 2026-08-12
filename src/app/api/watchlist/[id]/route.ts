@@ -18,6 +18,8 @@ const updateWatchlistSchema = z.object({
   priceLocked: z.boolean().optional(),
 });
 
+export const dynamic = "force-dynamic";
+
 export async function PUT(
   request: NextRequest,
   { params }: { params: { id: string } }

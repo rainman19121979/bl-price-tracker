@@ -21,71 +21,79 @@ Next.js 14 (App Router) · TypeScript · PostgreSQL 15 + Prisma · Redis · Tail
 
 ## Setup
 
-### Voraussetzungen
+### Empfohlen: Docker Compose (One-Command)
 
-- Node.js 20+
-- PostgreSQL 15+
-- Redis 7+
-- Ein BrickLink-Store mit API-Zugang (Consumer Key/Secret + Access Token/Secret — Anleitung: [bricklink.com/v3/api.page](https://www.bricklink.com/v3/api.page))
+Voraussetzung: Docker + Docker Compose Plugin. Alles andere (Node.js, Postgres, Redis, Migrations) ist im Stack drin.
 
-### 1. Klonen & Dependencies
+```bash
+git clone https://github.com/rainman19121979/bl-price-tracker.git
+cd bl-price-tracker
+cp .env.example .env
+```
+
+Öffne `.env` und trage die drei Pflicht-Secrets ein:
+
+```bash
+# Generieren:
+echo "DB_PASSWORD=$(openssl rand -base64 24)"
+echo "NEXTAUTH_SECRET=$(openssl rand -base64 32)"
+echo "ENCRYPTION_KEY=$(openssl rand -hex 32)"
+```
+
+Dann:
+
+```bash
+docker compose up -d --build
+```
+
+Das startet 5 Services: `db` (Postgres), `redis`, `migrate` (läuft einmal, migriert die DB), `web` (Port 3000), `crawler`, `scheduler`. Öffne `http://localhost:3000` — Login-Seite leitet beim ersten Aufruf nach `/register` (Setup-Modus).
+
+**Wichtig:** `ENCRYPTION_KEY` verschlüsselt deinen BrickLink-API-Key in der DB. **Sichern.** Ohne den Key sind gespeicherte BL-Credentials unlesbar.
+
+Alltag:
+```bash
+docker compose logs -f web       # Logs eines Service
+docker compose down              # Stack stoppen
+docker compose pull && docker compose up -d --build   # Update ziehen + neu bauen
+```
+
+### Alternativ: Bare-Metal (ohne Docker)
+
+<details>
+<summary>Ausklappen</summary>
+
+Voraussetzungen: Node.js 20+, PostgreSQL 15+, Redis 7+.
 
 ```bash
 git clone https://github.com/rainman19121979/bl-price-tracker.git
 cd bl-price-tracker
 npm install
-```
 
-### 2. Datenbank + Redis
-
-```bash
-# Postgres-DB anlegen
-sudo -u postgres createuser -P pricetracker    # Passwort setzen
+# DB anlegen
+sudo -u postgres createuser -P pricetracker
 sudo -u postgres createdb -O pricetracker pricetracker
 
-# Redis läuft standardmäßig auf localhost:6379 — nichts weiter zu tun
-```
-
-### 3. .env
-
-```bash
+# .env: DATABASE_URL + REDIS_URL manuell setzen, Secrets generieren
 cp .env.example .env
-```
+# Kommentierte "Bare-metal only"-Zeilen am Ende der Datei aktivieren
 
-Anpassen: `DATABASE_URL`, `REDIS_URL`, `NEXTAUTH_URL` (Produktions-URL), und Secrets generieren:
-
-```bash
-echo "NEXTAUTH_SECRET=$(openssl rand -base64 32)"
-echo "ENCRYPTION_KEY=$(openssl rand -hex 32)"
-```
-
-`ENCRYPTION_KEY` verschlüsselt deinen BrickLink-API-Key in der DB — **bewahre ihn auf**, sonst verlierst du den Zugriff auf gespeicherte Keys.
-
-### 4. Migrationen
-
-```bash
 npx prisma migrate deploy
-npx prisma generate
-```
-
-### 5. Erststart
-
-```bash
-# Alle drei Prozesse
 npm run build
-npm start                    # Terminal 1: Web-Server (Port 3000)
-npm run crawler              # Terminal 2: Crawler-Worker
-npm run scheduler            # Terminal 3: Auto-Sync + BSX-Import
+
+# Drei Prozesse (je eigenes Terminal oder systemd — siehe unten)
+npm start                    # Web (Port 3000)
+npm run crawler              # Crawler
+npm run scheduler            # Scheduler
 ```
 
-Öffne `http://localhost:3000` — die Login-Seite leitet dich beim ersten Aufruf automatisch nach `/register` (Setup-Modus). Lege dein Admin-Konto an, danach ist die Registrierung standardmäßig geschlossen.
+</details>
 
-### 6. Nach dem Login
+### Nach dem Login (beide Setups)
 
-1. **Einstellungen → API-Key** — BrickLink Consumer Key/Secret + Access Token/Secret eintragen, Tageslimit setzen
-2. **Einstellungen → Pricing-Formeln** — mindestens eine Formel definieren (Beispiele in der UI)
-3. **BL-Inventar → "Von BrickLink laden"** — dein komplettes Store-Inventar wird importiert
-4. Crawler übernimmt ab dann automatisch die Preisdaten für alle Lots
+1. **Einstellungen → API-Key** — BrickLink Consumer Key/Secret + Access Token/Secret eintragen ([Anleitung](https://www.bricklink.com/v3/api.page))
+2. **Einstellungen → Pricing-Formeln** — mindestens eine Formel definieren
+3. **BL-Inventar** — Auto-Sync läuft alle 5 Min und holt dein Store-Inventar automatisch
+4. **Crawler** übernimmt die Preisdaten für alle Lots
 
 ---
 

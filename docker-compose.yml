@@ -1,25 +1,93 @@
-version: "3.8"
+# Full self-hosted stack. `docker compose up -d` and you're done.
+# Requires a `.env` file (copy from .env.example, fill secrets).
+#
+# Services:
+#   db         Postgres 15
+#   redis      Redis 7
+#   migrate    Runs `prisma migrate deploy` once, exits — gates the app services
+#   web        Next.js server on :3000
+#   crawler    BrickLink price crawler loop
+#   scheduler  Auto-sync + BSX-import + cleanup loop
+
+x-app-common: &app-common
+  image: bl-price-tracker:local
+  build:
+    context: .
+    dockerfile: Dockerfile
+  environment:
+    DATABASE_URL: postgresql://pricetracker:${DB_PASSWORD:?DB_PASSWORD not set}@db:5432/pricetracker
+    REDIS_URL: redis://redis:6379
+    NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:?NEXTAUTH_SECRET not set}
+    NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+    ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY not set}
+    NODE_ENV: production
+  restart: unless-stopped
+  depends_on:
+    migrate:
+      condition: service_completed_successfully
 
 services:
   db:
-    image: postgres:15
+    image: postgres:15-alpine
     restart: unless-stopped
-    ports:
-      - "5432:5432"
     environment:
       POSTGRES_USER: pricetracker
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD not set}
       POSTGRES_DB: pricetracker
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pricetracker -d pricetracker"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    ports:
-      - "6379:6379"
     volumes:
       - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  migrate:
+    <<: *app-common
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+    command: ["npx", "prisma", "migrate", "deploy"]
+
+  web:
+    <<: *app-common
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  crawler:
+    <<: *app-common
+    command: ["npx", "tsx", "--tsconfig", "tsconfig.worker.json", "src/workers/crawler.ts"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  scheduler:
+    <<: *app-common
+    command: ["npx", "tsx", "--tsconfig", "tsconfig.worker.json", "src/workers/scheduler.ts"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
 
 volumes:
   pgdata:

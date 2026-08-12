@@ -14,6 +14,8 @@ const updateKeySchema = z.object({
   externalCalls: z.string().nullable().optional(),
 });
 
+export const dynamic = "force-dynamic";
+
 export async function PUT(
   request: NextRequest,
   { params }: { params: { id: string } }

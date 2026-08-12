@@ -5,6 +5,8 @@ import { validatePartParams } from "@/lib/validate-params";
 import { findPart } from "@/lib/find-part";
 import { getShippingCountries } from "@/lib/user-settings";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(
   request: NextRequest,
   { params }: { params: { partNo: string; colorId: string } }

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateBearer, validateRequest, computeExternalPrice, isPriceError, getApiUsageFor } from "@/lib/external-price";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(request: NextRequest) {
   const auth = await authenticateBearer(request);
   if (!auth) return NextResponse.json({ error: "Bearer token required or invalid" }, { status: 401 });

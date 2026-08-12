@@ -3,6 +3,8 @@ import { authenticateBearer, validateRequest, computeExternalPrice, getApiUsageF
 
 const MAX_BATCH_SIZE = 100;
 
+export const dynamic = "force-dynamic";
+
 export async function POST(request: NextRequest) {
   const auth = await authenticateBearer(request);
   if (!auth) return NextResponse.json({ error: "Bearer token required or invalid" }, { status: 401 });

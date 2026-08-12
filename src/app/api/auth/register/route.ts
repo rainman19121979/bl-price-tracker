@@ -5,6 +5,8 @@ import { isRegistrationOpen } from "@/lib/app-settings";
 import { registerSchema } from "@/lib/validators";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
 
+export const dynamic = "force-dynamic";
+
 export async function POST(request: NextRequest) {
   try {
     // Rate limit: 5 register attempts per IP per hour

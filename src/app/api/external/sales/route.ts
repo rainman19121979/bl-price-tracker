@@ -11,6 +11,8 @@ interface Row {
   quantity: number; unit_price: number;
 }
 
+export const dynamic = "force-dynamic";
+
 export async function GET(request: NextRequest) {
   const auth = await authenticateBearer(request);
   if (!auth) return NextResponse.json({ error: "Bearer token required or invalid" }, { status: 401 });

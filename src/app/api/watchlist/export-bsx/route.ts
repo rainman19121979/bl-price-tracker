@@ -4,6 +4,8 @@ import { prisma } from "@/lib/db";
 import { getShippingCountries } from "@/lib/user-settings";
 import { evaluateFormula, findMatchingRule, type PricingRule } from "@/lib/pricing-engine";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   const session = await auth();
   if (!session?.user?.id) {

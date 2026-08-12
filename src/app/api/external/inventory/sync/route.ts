@@ -6,6 +6,8 @@ import { prisma } from "@/lib/db";
 import { recomputeAllLotsForPart } from "@/lib/lot-pricing";
 import { logApiCall, getUsage, getExternalCallCount } from "@/lib/api-usage";
 
+export const dynamic = "force-dynamic";
+
 export const maxDuration = 300;
 
 export async function POST(request: NextRequest) {
