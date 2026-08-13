@@ -1,0 +1,33 @@
+# Optional overlay for public HTTPS via Caddy + Let's Encrypt.
+# Only used when the user chose "public/domain" mode in install.sh.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.caddy.yml up -d
+#
+# Requires DOMAIN and EMAIL in .env (or exported as env vars).
+
+services:
+  # The web service loses its host-bound port — Caddy talks to it internally.
+  web:
+    ports: !override []
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:?DOMAIN not set — needed for HTTPS}
+      EMAIL: ${EMAIL:?EMAIL not set — needed for Let's Encrypt}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+
+volumes:
+  caddy_data:
+  caddy_config:

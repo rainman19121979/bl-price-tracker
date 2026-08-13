@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getShippingCountries } from "@/lib/user-settings";
+import { getCountryFilters } from "@/lib/user-settings";
 import { validatePartParams } from "@/lib/validate-params";
 import { findPart } from "@/lib/find-part";
 
@@ -47,20 +47,23 @@ export async function GET(
   const userId = parseInt(session.user.id);
 
   // Phase 1: independent lookups in parallel
-  const [part, countries] = await Promise.all([
+  const [part, filters] = await Promise.all([
     findPart(partNo, colorId),
-    getShippingCountries(userId),
+    getCountryFilters(userId),
   ]);
   if (!part) {
     return NextResponse.json({ error: "Part not found" }, { status: 404 });
   }
+  const { shippingCountries, sellerCountries } = filters;
 
   const sixMonthsAgo = new Date();
   sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
 
-  const countryFilter = countries ? "AND buyer_country = ANY($3)" : "";
   const queryArgs: (number | Date | string[])[] = [part.id, sixMonthsAgo];
-  if (countries) queryArgs.push(countries);
+  let p = 3;
+  let soldCf = "";
+  if (shippingCountries) { soldCf += ` AND buyer_country = ANY($${p++})`; queryArgs.push(shippingCountries); }
+  if (sellerCountries)   { soldCf += ` AND seller_country = ANY($${p++})`; queryArgs.push(sellerCountries); }
 
   // Phase 2: sales stats + stock stats in parallel
   const [stats, stockStats] = await Promise.all([
@@ -75,27 +78,30 @@ export async function GET(
         COALESCE(SUM(quantity), 0)::int as total_quantity,
         COUNT(DISTINCT date_trunc('day', date_ordered))::int as sale_days
       FROM price_sales
-      WHERE part_id = $1 AND date_ordered >= $2 ${countryFilter}
+      WHERE part_id = $1 AND date_ordered >= $2 ${soldCf}
       GROUP BY new_or_used`,
       ...queryArgs
     ),
     prisma.$queryRawUnsafe<StockStats[]>(
-      `WITH latest AS (
-        SELECT DISTINCT ON (new_or_used) new_or_used, fetched_at
-        FROM price_stock WHERE part_id = $1
-        ORDER BY new_or_used, fetched_at DESC
-      )
-      SELECT ps.new_or_used,
-        AVG(ps.unit_price)::float as avg_price,
-        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ps.unit_price)::float as median_price,
-        (SUM(ps.unit_price * ps.quantity) / NULLIF(SUM(ps.quantity), 0))::float as qty_avg_price,
-        COUNT(*)::int as total_offers,
-        COALESCE(SUM(ps.quantity), 0)::int as total_quantity
-      FROM price_stock ps
-      JOIN latest l ON ps.new_or_used = l.new_or_used AND ps.fetched_at = l.fetched_at
-      WHERE ps.part_id = $1
-      GROUP BY ps.new_or_used`,
-      part.id
+      (() => {
+        const stockCf = sellerCountries ? " AND seller_country = ANY($2)" : "";
+        return `WITH latest AS (
+          SELECT DISTINCT ON (new_or_used) new_or_used, fetched_at
+          FROM price_stock WHERE part_id = $1 ${stockCf}
+          ORDER BY new_or_used, fetched_at DESC
+        )
+        SELECT ps.new_or_used,
+          AVG(ps.unit_price)::float as avg_price,
+          PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ps.unit_price)::float as median_price,
+          (SUM(ps.unit_price * ps.quantity) / NULLIF(SUM(ps.quantity), 0))::float as qty_avg_price,
+          COUNT(*)::int as total_offers,
+          COALESCE(SUM(ps.quantity), 0)::int as total_quantity
+        FROM price_stock ps
+        JOIN latest l ON ps.new_or_used = l.new_or_used AND ps.fetched_at = l.fetched_at
+        WHERE ps.part_id = $1 ${stockCf}
+        GROUP BY ps.new_or_used`;
+      })(),
+      ...(sellerCountries ? [part.id, sellerCountries] : [part.id])
     ),
   ]);
 
@@ -147,6 +153,10 @@ export async function GET(
     stock: {
       new: buildStock(newStock),
       used: buildStock(usedStock),
+    },
+    filters: {
+      sellerCountries: sellerCountries,
+      shippingCountries: shippingCountries,
     },
   });
 }

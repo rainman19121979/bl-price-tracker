@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { validatePartParams } from "@/lib/validate-params";
 import { findPart } from "@/lib/find-part";
-import { getShippingCountries } from "@/lib/user-settings";
+import { getCountryFilters } from "@/lib/user-settings";
 
 export const dynamic = "force-dynamic";
 
@@ -40,10 +40,12 @@ export async function GET(
   const since = new Date();
   since.setDate(since.getDate() - days);
 
-  const countries = await getShippingCountries(userId);
-  const countryFilter = countries ? "AND s.buyer_country = ANY($3)" : "";
+  const { shippingCountries, sellerCountries } = await getCountryFilters(userId);
   const queryParams: unknown[] = [part.id, since];
-  if (countries) queryParams.push(countries);
+  let p = 3;
+  let countryFilter = "";
+  if (shippingCountries) { countryFilter += ` AND s.buyer_country = ANY($${p++})`; queryParams.push(shippingCountries); }
+  if (sellerCountries)   { countryFilter += ` AND s.seller_country = ANY($${p++})`; queryParams.push(sellerCountries); }
 
   interface DailyRow {
     day: Date;

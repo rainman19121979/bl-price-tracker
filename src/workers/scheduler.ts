@@ -1,7 +1,8 @@
 import { prisma } from '@/lib/db'
 import { getLastSyncDate, setLastSyncDate } from '@/lib/crawler-control'
 import { cleanupOldLogs } from '@/lib/api-usage'
-import { importBsxDirectory } from '@/lib/bsx-orders'
+import { importBsxSource } from '@/lib/bsx-orders'
+import { loadUserBsxSource } from '@/lib/bsx-source'
 import { syncBricklinkInventory } from '@/lib/inventory-sync'
 
 // ---------------------------------------------------------------------------
@@ -47,17 +48,20 @@ async function checkBsxOrders(): Promise<void> {
   if (Date.now() - lastBsxCheck < 30 * 60 * 1000) return
   lastBsxCheck = Date.now()
 
+  // Pick every active user — the source loader decides local vs. SMB
+  // (returns null if the user has no BSX source configured, which we skip).
   const users = await prisma.user.findMany({
-    where: { isActive: true, bsxOrdersDir: { not: null } },
-    select: { id: true, bsxOrdersDir: true },
+    where: { isActive: true },
+    select: { id: true },
   })
 
   for (const user of users) {
-    if (!user.bsxOrdersDir) continue
     try {
-      const result = await importBsxDirectory(user.bsxOrdersDir, user.id)
+      const source = await loadUserBsxSource(user.id)
+      if (!source) continue
+      const result = await importBsxSource(source, user.id)
       if (result.itemsImported > 0 || result.partsCreated > 0 || result.errors.length > 0) {
-        console.log(`[Scheduler] BSX-Orders user=${user.id}: ${result.ordersProcessed} Dateien, ${result.itemsImported} neue Items, ${result.itemsSkipped} bereits da, ${result.partsCreated} Parts neu, ${result.errors.length} Fehler`)
+        console.log(`[Scheduler] BSX-Orders user=${user.id} src=${source.type}: ${result.ordersProcessed} Dateien, ${result.itemsImported} neue Items, ${result.itemsSkipped} bereits da, ${result.partsCreated} Parts neu, ${result.errors.length} Fehler`)
       }
     } catch (err) {
       console.error(`[Scheduler] BSX-Import Fehler user=${user.id}:`, err instanceof Error ? err.message : err)

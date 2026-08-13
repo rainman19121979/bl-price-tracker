@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getShippingCountries } from "@/lib/user-settings";
+import { getCountryFilters } from "@/lib/user-settings";
 import { validatePartParams } from "@/lib/validate-params";
 import { findPart } from "@/lib/find-part";
 
@@ -34,21 +34,25 @@ export async function GET(
 
   const userId = parseInt(session.user.id);
 
-  // findPart + getShippingCountries in parallel
-  const [part, countries] = await Promise.all([
+  // findPart + getCountryFilters in parallel
+  const [part, filters] = await Promise.all([
     findPart(partNo, colorId),
-    getShippingCountries(userId),
+    getCountryFilters(userId),
   ]);
   if (!part) {
     return NextResponse.json({ error: "Part not found" }, { status: 404 });
   }
+  const { shippingCountries, sellerCountries } = filters;
 
   const where: Record<string, unknown> = { partId: part.id };
   if (condition === "N" || condition === "U") {
     where.newOrUsed = condition;
   }
-  if (countries) {
-    where.buyerCountry = { in: countries };
+  if (shippingCountries) {
+    where.buyerCountry = { in: shippingCountries };
+  }
+  if (sellerCountries) {
+    where.sellerCountry = { in: sellerCountries };
   }
 
   // Sales + count + mySales all in parallel

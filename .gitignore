@@ -52,3 +52,8 @@ next-env.d.ts
 
 # env backups
 .env.*.bak
+
+# never commit real inventory dumps / order files
+*.bsx
+/bsx-orders/*
+!/bsx-orders/.gitkeep

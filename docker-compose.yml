@@ -8,6 +8,11 @@
 #   web        Next.js server on :3000
 #   crawler    BrickLink price crawler loop
 #   scheduler  Auto-sync + BSX-import + cleanup loop
+#
+# BSX orders are configured entirely in the UI (Settings → BSX-Import).
+# For a LOCAL folder you must bind-mount it into the container — set
+# BSX_HOST_PATH in .env. For a NETWORK SHARE (SMB/NAS) no host-side setup
+# is needed — enter host/share/user/password directly in the UI.
 
 x-app-common: &app-common
   image: bl-price-tracker:local
@@ -22,6 +27,10 @@ x-app-common: &app-common
     ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY not set}
     NODE_ENV: production
   restart: unless-stopped
+  volumes:
+    # Optional local BSX folder — only used when Settings → BSX-Import
+    # is set to "Lokaler Ordner". For SMB shares this mount is unused.
+    - ${BSX_HOST_PATH:-./bsx-orders}:/bsx-orders:ro
   depends_on:
     migrate:
       condition: service_completed_successfully
@@ -64,7 +73,11 @@ services:
   web:
     <<: *app-common
     ports:
+      # WEB_PORT can be "3000" (public) or "127.0.0.1:3000" (Tailscale/SSH-tunnel only)
       - "${WEB_PORT:-3000}:3000"
+      # Also expose internally for Caddy in the overlay
+    expose:
+      - "3000"
     depends_on:
       migrate:
         condition: service_completed_successfully

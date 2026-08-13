@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db";
 import { fetchPriceData } from "@/lib/fetch-prices";
 import { evaluateFormula, findMatchingRule, type PricingRule, type PricingVars } from "@/lib/pricing-engine";
-import { getShippingCountries } from "@/lib/user-settings";
+import { getCountryFilters } from "@/lib/user-settings";
 import { getUsage, getExternalCallCount } from "@/lib/api-usage";
 
 export interface ApiUsage {
@@ -127,10 +127,14 @@ export async function computeExternalPrice(
     }
   }
 
-  const countries = await getShippingCountries(userId);
-  const cf = countries ? "AND s.buyer_country = ANY($3)" : "";
+  const { shippingCountries, sellerCountries } = await getCountryFilters(userId);
   const params: unknown[] = [part.id, newOrUsed];
-  if (countries) params.push(countries);
+  let p = 3;
+  let soldCf = "";
+  if (shippingCountries) { soldCf += ` AND s.buyer_country = ANY($${p++})`; params.push(shippingCountries); }
+  if (sellerCountries)   { soldCf += ` AND s.seller_country = ANY($${p++})`; params.push(sellerCountries); }
+  const stockCf = sellerCountries ? ` AND st.seller_country = ANY($${p})` : "";
+  if (sellerCountries)   { params.push(sellerCountries); }
 
   const stats = await prisma.$queryRawUnsafe<Array<{
     sold_median: number | null; sold_avg: number | null;
@@ -140,16 +144,16 @@ export async function computeExternalPrice(
   }>>(
     `WITH latest_stock AS (
       SELECT st.unit_price, st.quantity FROM price_stock st
-      WHERE st.part_id = $1 AND st.new_or_used = $2
+      WHERE st.part_id = $1 AND st.new_or_used = $2 ${stockCf}
         AND st.fetched_at = (SELECT MAX(fetched_at) FROM price_stock WHERE part_id = $1 AND new_or_used = $2)
     )
     SELECT
       (SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY s.unit_price)::float
        FROM price_sales s WHERE s.part_id = $1 AND s.new_or_used = $2
-         AND s.date_ordered >= NOW() - INTERVAL '6 months' ${cf}) AS sold_median,
+         AND s.date_ordered >= NOW() - INTERVAL '6 months' ${soldCf}) AS sold_median,
       (SELECT (SUM(s.unit_price * s.quantity) / NULLIF(SUM(s.quantity), 0))::float
        FROM price_sales s WHERE s.part_id = $1 AND s.new_or_used = $2
-         AND s.date_ordered >= NOW() - INTERVAL '6 months' ${cf}) AS sold_avg,
+         AND s.date_ordered >= NOW() - INTERVAL '6 months' ${soldCf}) AS sold_avg,
       (SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY unit_price)::float FROM latest_stock) AS stock_median,
       (SELECT (SUM(unit_price * quantity) / NULLIF(SUM(quantity), 0))::float FROM latest_stock) AS stock_avg,
       (SELECT MIN(unit_price)::float FROM latest_stock) AS stock_min,

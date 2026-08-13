@@ -1,13 +1,13 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { signOut } from "next-auth/react";
 import { ApiKeysSection, type ApiKey } from "@/components/settings/api-keys-section";
 import { AutoSyncSection } from "@/components/settings/auto-sync-section";
 import { ShippingCountriesSection } from "@/components/settings/shipping-countries-section";
+import { SellerCountriesSection } from "@/components/settings/seller-countries-section";
 import { PricingFormulasSection } from "@/components/settings/pricing-formulas-section";
 import { ApiTokensSection } from "@/components/settings/api-tokens-section";
-import { BsxImportSection } from "@/components/settings/bsx-import-section";
+import { BsxImportSection, type BsxSourceState } from "@/components/settings/bsx-import-section";
 import type { PricingRule } from "@/lib/pricing-engine";
 
 export default function SettingsPage() {
@@ -25,21 +25,23 @@ export default function SettingsPage() {
   const [pricingFormulas, setPricingFormulas] = useState<PricingRule[]>([]);
 
   // Fresh days state
-  const [freshDays, setFreshDays] = useState(14);
+  const [freshDays, setFreshDays] = useState(180);
   const [freshDaysSaving, setFreshDaysSaving] = useState(false);
+  const [budgetStats, setBudgetStats] = useState<{ watchlistCount: number; dailyLimit: number; externalCallsPerDay: number } | null>(null);
 
   // Shipping countries state
   const [shippingCountries, setShippingCountries] = useState<string[] | null>(null);
   const [availableCountries, setAvailableCountries] = useState<{ code: string; sales: number }[]>([]);
+  const [sellerCountries, setSellerCountries] = useState<string[] | null>(null);
+  const [availableSellerCountries, setAvailableSellerCountries] = useState<{ code: string; sales: number }[]>([]);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
 
   // BSX orders directory (optional feature)
   const [bsxOrdersDir, setBsxOrdersDir] = useState<string | null>(null);
-
-  // Account deletion state
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [deletePassword, setDeletePassword] = useState("");
-  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [bsxSource, setBsxSource] = useState<BsxSourceState>({
+    type: "local", smbHost: null, smbShare: null, smbSubpath: null,
+    smbDomain: null, smbUser: null, smbPasswordSet: false,
+  });
 
   // Shared messages
   const [error, setError] = useState("");
@@ -66,11 +68,14 @@ export default function SettingsPage() {
         const data = await res.json();
         setAutoSync(data.autoSyncInventory);
         setCrawlerEnabled(data.crawlerEnabled);
-        setFreshDays(data.freshDays ?? 14);
+        setFreshDays(data.freshDays ?? 180);
         setPricingFormulas(data.pricingFormulas || []);
         setShippingCountries(data.shippingCountries);
         setAvailableCountries(data.availableCountries || []);
+        setSellerCountries(data.sellerCountries);
+        setAvailableSellerCountries(data.availableSellerCountries || []);
         setBsxOrdersDir(data.bsxOrdersDir ?? null);
+        if (data.bsxSource) setBsxSource(data.bsxSource);
         setSettingsLoaded(true);
       }
     } catch {
@@ -78,6 +83,20 @@ export default function SettingsPage() {
     } finally {
       setAutoSyncLoading(false);
     }
+  }, []);
+
+  const fetchBudget = useCallback(async () => {
+    try {
+      const res = await fetch("/api/dashboard/stats");
+      if (res.ok) {
+        const data = await res.json();
+        setBudgetStats({
+          watchlistCount: data.watchlistCount ?? 0,
+          dailyLimit: data.dailyLimit ?? 0,
+          externalCallsPerDay: data.externalCallsPerDay ?? 0,
+        });
+      }
+    } catch { /* ignore */ }
   }, []);
 
   const toggleAutoSync = async () => {
@@ -106,35 +125,11 @@ export default function SettingsPage() {
     }
   };
 
-  const handleDeleteAccount = async () => {
-    if (!deletePassword) {
-      setError("Bitte Passwort eingeben");
-      return;
-    }
-    setDeleteLoading(true);
-    try {
-      const res = await fetch("/api/users/me", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ confirmPassword: deletePassword }),
-      });
-      if (res.ok) {
-        await signOut({ callbackUrl: "/login" });
-      } else {
-        const data = await res.json();
-        setError(data.error || "Fehler beim Loeschen des Kontos");
-      }
-    } catch {
-      setError("Netzwerkfehler");
-    } finally {
-      setDeleteLoading(false);
-    }
-  };
-
   useEffect(() => {
     fetchKeys();
     fetchSettings();
-  }, [fetchKeys, fetchSettings]);
+    fetchBudget();
+  }, [fetchKeys, fetchSettings, fetchBudget]);
 
   return (
     <div className="space-y-8">
@@ -217,48 +212,102 @@ export default function SettingsPage() {
           <div>
             <h2 className="text-lg font-semibold text-gray-900">Datenaktualitaet</h2>
             <p className="mt-0.5 text-sm text-gray-500">
-              Wie alt duerfen Preisdaten sein, bevor sie neu geholt werden?
+              Wie alt duerfen Preisdaten sein, bevor sie neu geholt werden? Kuerzer = frischer, kostet mehr API-Aufrufe.
             </p>
           </div>
         </div>
-        <div className="mt-4 flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <input
-              type="number"
-              value={freshDays}
-              min={1}
-              max={90}
-              onChange={(e) => setFreshDays(Math.max(1, Math.min(90, parseInt(e.target.value) || 14)))}
-              className="w-20 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
-            <span className="text-sm text-gray-600">Tage</span>
-          </div>
-          <button
-            disabled={freshDaysSaving}
-            onClick={async () => {
-              setFreshDaysSaving(true);
-              try {
-                const res = await fetch("/api/settings", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ freshDays }),
-                });
-                if (res.ok) {
-                  const data = await res.json();
-                  setFreshDays(data.freshDays);
-                  setSuccess(`Max-Alter auf ${data.freshDays} Tage gesetzt`);
-                }
-              } catch { setError("Netzwerkfehler"); }
-              finally { setFreshDaysSaving(false); }
-            }}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
-          >
-            {freshDaysSaving ? "Speichern..." : "Speichern"}
-          </button>
-        </div>
-        <p className="mt-2 text-xs text-gray-400">
-          Teile mit aelteren Preisdaten werden vom Crawler bevorzugt aktualisiert. Hoehere Werte reduzieren die Last auf den API-Key.
-        </p>
+        {(() => {
+          const months = Math.max(1, Math.round(freshDays / 30));
+          const wl = budgetStats?.watchlistCount ?? 0;
+          const limit = budgetStats?.dailyLimit ?? 0;
+          const external = budgetStats?.externalCallsPerDay ?? 0;
+          const days = months * 30;
+          const requiredPerDay = Math.ceil((wl * 2) / days);
+          const totalUsage = requiredPerDay + external;
+          const available = Math.max(0, limit - external);
+          const exceeds = limit > 0 && requiredPerDay > available;
+          return (
+            <>
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <label className="text-sm text-gray-700">Alle</label>
+                <select
+                  value={months}
+                  onChange={(e) => setFreshDays(parseInt(e.target.value) * 30)}
+                  className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  {[1, 2, 3, 4, 5, 6, 8, 10, 12].map((m) => (
+                    <option key={m} value={m}>{m} Monat{m > 1 ? "e" : ""}</option>
+                  ))}
+                </select>
+                <span className="text-sm text-gray-600">neu holen</span>
+                <button
+                  disabled={freshDaysSaving || exceeds}
+                  onClick={async () => {
+                    setFreshDaysSaving(true);
+                    setError(""); setSuccess("");
+                    try {
+                      const res = await fetch("/api/settings", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ freshDays: days }),
+                      });
+                      const data = await res.json();
+                      if (res.ok) {
+                        setFreshDays(data.freshDays);
+                        setSuccess(`Max-Alter auf ${Math.round(data.freshDays / 30)} Monate gesetzt`);
+                        fetchBudget();
+                      } else {
+                        setError(data.error || "Fehler beim Speichern");
+                      }
+                    } catch { setError("Netzwerkfehler"); }
+                    finally { setFreshDaysSaving(false); }
+                  }}
+                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {freshDaysSaving ? "Speichern..." : "Speichern"}
+                </button>
+              </div>
+
+              {budgetStats && (
+                <div className={`mt-3 rounded-lg border p-3 text-xs ${
+                  exceeds ? "border-red-300 bg-red-50 text-red-900" :
+                  totalUsage > limit * 0.8 ? "border-amber-300 bg-amber-50 text-amber-900" :
+                  "border-emerald-200 bg-emerald-50 text-emerald-900"
+                }`}>
+                  <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+                    <div>
+                      <span className="font-semibold">Lots:</span> {wl.toLocaleString("de-DE")}
+                      {" · "}
+                      <span className="font-semibold">Zeitraum:</span> {months} Monat{months > 1 ? "e" : ""} = {days} Tage
+                    </div>
+                    <div>
+                      <span className="font-semibold">Benoetigt:</span> ~{requiredPerDay.toLocaleString("de-DE")} Calls/Tag
+                      {external > 0 && ` + ${external} extern`}
+                      {limit > 0 && (
+                        <> {" · "}<span className="font-semibold">Limit:</span> {limit.toLocaleString("de-DE")}</>
+                      )}
+                    </div>
+                  </div>
+                  {exceeds && (
+                    <div className="mt-1 font-semibold">
+                      Nicht speicherbar: benoetigt mehr Calls als dein Limit erlaubt.
+                      Waehle einen laengeren Zeitraum oder erhoehe das Limit in den API-Keys.
+                    </div>
+                  )}
+                  {!exceeds && totalUsage > limit * 0.8 && limit > 0 && (
+                    <div className="mt-1">
+                      Achtung: nutzt {Math.round((totalUsage / limit) * 100)}% deines Tageslimits.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <p className="mt-2 text-xs text-gray-400">
+                Formel: <code>Lots × 2 (sold+stock) / Tage</code>. Teile mit aelteren Preisdaten werden bevorzugt aktualisiert.
+              </p>
+            </>
+          );
+        })()}
       </section>
 
       {settingsLoaded && (
@@ -285,111 +334,26 @@ export default function SettingsPage() {
         />
       )}
 
-      <ApiTokensSection onError={setError} onSuccess={setSuccess} />
-
       {settingsLoaded && (
-        <BsxImportSection
-          initialDir={bsxOrdersDir}
+        <SellerCountriesSection
+          initialCountries={sellerCountries}
+          availableCountries={availableSellerCountries}
           onError={setError}
           onSuccess={setSuccess}
         />
       )}
 
-      {/* Data Export Section */}
-      <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-        <h2 className="text-lg font-semibold text-gray-900">Datenexport</h2>
-        <p className="mt-1 text-sm text-gray-500">
-          Exportiere deine gesammelten Preisdaten
-        </p>
-        <div className="mt-6 flex gap-3">
-          <a
-            href="/api/users/me/export"
-            download
-            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
-          >
-            JSON Export (DSGVO)
-          </a>
-          <button
-            disabled
-            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-50"
-          >
-            CSV Export (bald verfuegbar)
-          </button>
-        </div>
-      </section>
+      <ApiTokensSection onError={setError} onSuccess={setSuccess} />
 
-      {/* Danger Zone: Account Deletion */}
-      <section className="rounded-xl border border-red-300 bg-red-50 p-6 shadow-sm">
-        <h2 className="text-lg font-semibold text-red-900">Gefahrenzone</h2>
-        <p className="mt-1 text-sm text-red-700">
-          Unwiderrufliche Aktionen — bitte mit Vorsicht verwenden.
-        </p>
-        <div className="mt-6">
-          <button
-            onClick={() => setShowDeleteDialog(true)}
-            className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700"
-          >
-            Konto loeschen
-          </button>
-        </div>
-      </section>
-
-      {/* Delete Account Confirmation Dialog */}
-      {showDeleteDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="fixed inset-0 bg-black/50"
-            onClick={() => {
-              setShowDeleteDialog(false);
-              setDeletePassword("");
-            }}
-          />
-          <div className="relative z-50 w-full max-w-md rounded-xl border border-gray-200 bg-white p-6 shadow-lg">
-            <h3 className="text-lg font-semibold text-gray-900">
-              Konto endgueltig loeschen?
-            </h3>
-            <p className="mt-2 text-sm text-gray-600">
-              Alle deine Daten werden unwiderruflich geloescht: Watchlist,
-              API-Keys, Einstellungen und Kontoinformationen. Bitte gib dein
-              Passwort zur Bestaetigung ein.
-            </p>
-            <div className="mt-4">
-              <label
-                htmlFor="delete-password"
-                className="block text-sm font-medium text-gray-700"
-              >
-                Passwort
-              </label>
-              <input
-                id="delete-password"
-                type="password"
-                value={deletePassword}
-                onChange={(e) => setDeletePassword(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-red-500 focus:outline-none focus:ring-1 focus:ring-red-500"
-                placeholder="Passwort eingeben"
-              />
-            </div>
-            <div className="mt-6 flex justify-end gap-3">
-              <button
-                onClick={() => {
-                  setShowDeleteDialog(false);
-                  setDeletePassword("");
-                }}
-                className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
-              >
-                Abbrechen
-              </button>
-              <button
-                onClick={handleDeleteAccount}
-                disabled={deleteLoading || !deletePassword}
-                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700 disabled:opacity-50"
-              >
-                {deleteLoading ? "Wird geloescht..." : "Endgueltig loeschen"}
-              </button>
-            </div>
-          </div>
-        </div>
+      {settingsLoaded && (
+        <BsxImportSection
+          initialDir={bsxOrdersDir}
+          initialSource={bsxSource}
+          onError={setError}
+          onSuccess={setSuccess}
+        />
       )}
+
     </div>
   );
 }

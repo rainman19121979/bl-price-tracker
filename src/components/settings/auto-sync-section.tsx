@@ -41,6 +41,19 @@ export function AutoSyncSection({ autoSync, loading, saving, onToggle }: AutoSyn
           />
         </button>
       </div>
+      <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+        <p className="font-semibold">Read-only für BrickLink &amp; BrickOwl</p>
+        <p className="mt-1 text-amber-800">
+          Diese App schreibt <strong>nie</strong> zurück an einen Marktplatz — Mengen, Preise und
+          Beschreibungen in deinen Stores bleiben unangetastet. Um die Empfehlungspreise (aus deinen
+          Formeln) in deinen Store zu übertragen, gehst du diesen Weg:
+        </p>
+        <ol className="mt-2 ml-5 list-decimal space-y-0.5 text-amber-800">
+          <li>Watchlist → <em>BSX-Export</em> herunterladen</li>
+          <li>BrickStore öffnen, BSX importieren, prüfen, evtl. korrigieren</li>
+          <li>Aus BrickStore per <em>BrickLink-Upload</em> in deinen Store zurückschreiben</li>
+        </ol>
+      </div>
     </section>
   );
 }

@@ -1,0 +1,17 @@
+# Caddy config for optional HTTPS deployment.
+# Only loaded when docker-compose.caddy.yml overlay is active.
+# DOMAIN + EMAIL come from .env via environment.
+
+{$DOMAIN} {
+    encode gzip
+    reverse_proxy web:3000
+    tls {$EMAIL}
+
+    # Basic hardening headers
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+}

@@ -72,6 +72,15 @@ export default function PartDetailPage() {
   const [stockItems, setStockItems] = useState<{ unitPrice: number; quantity: number; isMine?: boolean }[]>([]);
   const [tableTab, setTableTab] = useState<"sales" | "stock">("sales");
   const [loading, setLoading] = useState(true);
+  const [filters, setFilters] = useState<{ sellerCountries: string[] | null; shippingCountries: string[] | null }>({ sellerCountries: null, shippingCountries: null });
+
+  const soldLabel = (() => {
+    const parts: string[] = [];
+    if (filters.sellerCountries) parts.push(`Verk.: ${filters.sellerCountries.join(",")}`);
+    if (filters.shippingCountries) parts.push(`Käufer: ${filters.shippingCountries.join(",")}`);
+    return parts.length ? ` (${parts.join(" | ")})` : " (weltweit)";
+  })();
+  const stockLabel = filters.sellerCountries ? ` (${filters.sellerCountries.join(",")})` : " (weltweit)";
 
   const conditionLabel = condition === "N" ? "Neu" : "Gebraucht";
   const conditionColor = condition === "N" ? "green" : "amber";
@@ -92,6 +101,7 @@ export default function PartDetailPage() {
         setPart(data.part);
         setPrice(condition === "N" ? data.prices?.new : data.prices?.used);
         setStockPrice(condition === "N" ? data.stock?.new : data.stock?.used);
+        if (data.filters) setFilters(data.filters);
       }
 
       if (stockRes.ok) {
@@ -208,7 +218,7 @@ export default function PartDetailPage() {
         <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
           {/* Sold */}
           <div className="rounded-lg border border-gray-200 bg-gray-50 p-5">
-            <span className="text-xs font-semibold uppercase text-blue-600">Verkauft (6 Monate DE)</span>
+            <span className="text-xs font-semibold uppercase text-blue-600">Verkauft (6 Monate){soldLabel}</span>
             {price ? (
               <div className="mt-2">
                 <div className="flex items-baseline gap-6">
@@ -238,7 +248,7 @@ export default function PartDetailPage() {
 
           {/* Stock */}
           <div className="rounded-lg border border-gray-200 bg-gray-50 p-5">
-            <span className="text-xs font-semibold uppercase text-purple-600">Aktuelle Angebote (DE)</span>
+            <span className="text-xs font-semibold uppercase text-purple-600">Aktuelle Angebote{stockLabel}</span>
             {stockPrice ? (
               <div className="mt-2">
                 <div className="flex items-baseline gap-6">

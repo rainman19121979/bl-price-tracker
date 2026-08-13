@@ -223,7 +223,7 @@ async function findNextJob(): Promise<NextJob | null> {
 
 async function processSold(job: NextJob, client: BrickLinkClient): Promise<void> {
   const response = await client.getPriceGuide(
-    job.partNo, job.itemType, job.colorId, job.newOrUsed, 'DE', 'sold'
+    job.partNo, job.itemType, job.colorId, job.newOrUsed, 'sold'
   )
 
   const data = response.data
@@ -238,7 +238,7 @@ async function processSold(job: NextJob, client: BrickLinkClient): Promise<void>
         prisma.$executeRaw`
           INSERT INTO price_sales (part_id, date_ordered, unit_price, quantity, seller_country, buyer_country, new_or_used, fetched_at, created_at)
           VALUES (${job.partId}, ${new Date(sale.date_ordered)}, ${parseFloat(sale.unit_price)}::decimal(10,4),
-            ${sale.quantity}, ${sale.seller_country_code || 'DE'}, ${sale.buyer_country_code || null}, ${job.newOrUsed}, ${today}, NOW())
+            ${sale.quantity}, ${sale.seller_country_code || 'XX'}, ${sale.buyer_country_code || null}, ${job.newOrUsed}, ${today}, NOW())
           ON CONFLICT DO NOTHING
         `
       ))
@@ -254,7 +254,9 @@ async function processSold(job: NextJob, client: BrickLinkClient): Promise<void>
       dailyMap.set(day, entry)
     }
 
-    // Batch upsert daily aggregates in chunks of 50
+    // Daily rollup stored under sentinel 'XX' — global across sellers.
+    // Per-country daily aggregates would require re-splitting price_detail
+    // by seller_country; callers use price_sales directly for country-filtered aggregation.
     const dailyEntries = Array.from(dailyMap.entries())
     for (let i = 0; i < dailyEntries.length; i += CHUNK) {
       await Promise.all(dailyEntries.slice(i, i + CHUNK).map(([dayStr, { prices, quantities }]) => {
@@ -263,7 +265,7 @@ async function processSold(job: NextJob, client: BrickLinkClient): Promise<void>
         const totalQty = quantities.reduce((a, b) => a + b, 0)
 
         return prisma.priceDaily.upsert({
-          where: { partId_fetchDate_newOrUsed_sellerCountry: { partId: job.partId, fetchDate, newOrUsed: job.newOrUsed, sellerCountry: 'DE' } },
+          where: { partId_fetchDate_newOrUsed_sellerCountry: { partId: job.partId, fetchDate, newOrUsed: job.newOrUsed, sellerCountry: 'XX' } },
           update: {
             minPrice: Math.min(...prices), maxPrice: Math.max(...prices),
             avgPrice: prices.reduce((a, b) => a + b, 0) / prices.length,
@@ -271,7 +273,7 @@ async function processSold(job: NextJob, client: BrickLinkClient): Promise<void>
             unitQuantity: prices.length, totalQuantity: totalQty,
           },
           create: {
-            partId: job.partId, fetchDate, newOrUsed: job.newOrUsed, sellerCountry: 'DE', currencyCode: 'EUR',
+            partId: job.partId, fetchDate, newOrUsed: job.newOrUsed, sellerCountry: 'XX', currencyCode: 'EUR',
             minPrice: Math.min(...prices), maxPrice: Math.max(...prices),
             avgPrice: prices.reduce((a, b) => a + b, 0) / prices.length,
             qtyAvgPrice: prices.reduce((s, p, i) => s + p * quantities[i], 0) / totalQty,
@@ -302,7 +304,7 @@ async function processSold(job: NextJob, client: BrickLinkClient): Promise<void>
 
 async function processStock(job: NextJob, client: BrickLinkClient): Promise<void> {
   const response = await client.getPriceGuide(
-    job.partNo, job.itemType, job.colorId, job.newOrUsed, 'DE', 'stock'
+    job.partNo, job.itemType, job.colorId, job.newOrUsed, 'stock'
   )
 
   const data = response.data
@@ -321,7 +323,8 @@ async function processStock(job: NextJob, client: BrickLinkClient): Promise<void
       await Promise.all(data.price_detail.slice(i, i + CHUNK).map(offer =>
         prisma.$executeRaw`
           INSERT INTO price_stock (part_id, unit_price, quantity, seller_country, new_or_used, fetched_at, created_at)
-          VALUES (${job.partId}, ${parseFloat(offer.unit_price)}::decimal(10,4), ${offer.quantity}, 'DE', ${job.newOrUsed}, ${today}, NOW())
+          VALUES (${job.partId}, ${parseFloat(offer.unit_price)}::decimal(10,4), ${offer.quantity},
+            ${offer.seller_country_code || 'XX'}, ${job.newOrUsed}, ${today}, NOW())
           ON CONFLICT DO NOTHING
         `
       ))

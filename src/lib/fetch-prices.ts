@@ -36,7 +36,7 @@ export async function fetchPriceData(
         INSERT INTO price_sales (part_id, date_ordered, unit_price, quantity,
           seller_country, buyer_country, new_or_used, fetched_at, created_at)
         VALUES (${part.id}, ${new Date(sale.date_ordered)}, ${parseFloat(sale.unit_price)}::decimal(10,4),
-          ${sale.quantity}, ${sale.seller_country_code || 'DE'},
+          ${sale.quantity}, ${sale.seller_country_code || 'XX'},
           ${sale.buyer_country_code || null}, ${newOrUsed}, ${today}, NOW())
         ON CONFLICT DO NOTHING
       `
@@ -54,7 +54,7 @@ export async function fetchPriceData(
   // 2) Stock
   let stockCount = 0
   try {
-    const stockResp = await client.getPriceGuide(part.partNo, part.itemType, part.colorId, newOrUsed, 'DE', 'stock')
+    const stockResp = await client.getPriceGuide(part.partNo, part.itemType, part.colorId, newOrUsed, 'stock')
     const stockData = stockResp.data
     await prisma.$executeRaw`
       DELETE FROM price_stock WHERE part_id = ${part.id} AND new_or_used = ${newOrUsed} AND fetched_at = ${today}
@@ -63,7 +63,8 @@ export async function fetchPriceData(
       for (const offer of stockData.price_detail) {
         await prisma.$executeRaw`
           INSERT INTO price_stock (part_id, unit_price, quantity, seller_country, new_or_used, fetched_at, created_at)
-          VALUES (${part.id}, ${parseFloat(offer.unit_price)}::decimal(10,4), ${offer.quantity}, 'DE', ${newOrUsed}, ${today}, NOW())
+          VALUES (${part.id}, ${parseFloat(offer.unit_price)}::decimal(10,4), ${offer.quantity},
+            ${offer.seller_country_code || 'XX'}, ${newOrUsed}, ${today}, NOW())
           ON CONFLICT DO NOTHING
         `
       }

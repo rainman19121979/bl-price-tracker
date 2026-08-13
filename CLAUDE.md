@@ -39,16 +39,16 @@ npx prisma studio              # DB browser GUI
 ## Architecture
 
 ### Data Flow
-BrickLink API (OAuth 1.0, country_code=DE) -> Crawler loop (dynamic picking) -> PostgreSQL (upsert/dedup) -> Next.js API routes -> React frontend
+BrickLink API (OAuth 1.0, worldwide -- no `country_code`) -> Crawler loop (dynamic picking) -> PostgreSQL (upsert/dedup) -> Next.js API routes (per-user seller/buyer country filter) -> React frontend
 
 ### Key Design Decisions
 
-- **No queue system:** Crawler picks dynamically from `user_watchlists` based on staleness (per-user `freshDays` setting, default 14). The `crawl_queue` table exists but is not actively used.
+- **No queue system:** Crawler picks dynamically from `user_watchlists` based on staleness (per-user `freshDays` setting, default 180 = 6 months, UI configurable in month steps). The `crawl_queue` table exists but is not actively used. Settings API blocks `freshDays` values that would require more calls than the user's `dailyLimit` (minus external estimate).
 - **Sold + stock alternation:** Crawler alternates between `sold` (price history) and `stock` (current offers) via Redis `crawler:lastType`. If one side is all fresh, only the other is fetched.
 - **Per-user crawler opt-in:** Each user has a `crawlerEnabled` boolean flag. No global toggle. Crawler only uses API keys from users with `crawlerEnabled=true`.
 - **Per-lot inventory:** Watchlist entries are linked via `bl_inventory_id` (BrickLink lot ID), not just part+color+condition. This means the same part can appear multiple times if listed as separate lots. Unique constraint: `(userId, blInventoryId)`.
 - **Median pricing:** Market prices shown as median (robust against outliers) alongside weighted average (`qty_avg`). Trend arrows compare 30-day median vs 60-day median.
-- **Seller filter:** Only DE (`country_code=DE`) -- German market as benchmark. Stock data is filtered at API level, sold data can be further filtered by buyer country via per-user `shippingCountries` setting.
+- **Country filter (fetch-once, filter-many):** BL API is called **without** `country_code` -- data for all seller countries is stored in `price_sales` (`seller_country`, `buyer_country`) and `price_stock` (`seller_country`). Each user configures two filters in `/settings`: `sellerCountries` (default DE) restricts both sold + stock; `shippingCountries` restricts sold by buyer country. Toggle in UI at any time without re-crawling. `getCountryFilters()` in [src/lib/user-settings.ts](src/lib/user-settings.ts) returns both. `price_daily` rollup is stored under the sentinel `sellerCountry='XX'` (global across sellers); per-country daily aggregates would require re-splitting `price_detail` by seller -- callers use `price_sales` directly for country-filtered aggregation.
 - **Dynamic pacing:** Crawler has two modes: Full-speed (parts without data, `86400/dailyLimit` delay) and maintenance (all parts have data, `86400/(totalLots*2/freshDays)` delay). Switches automatically.
 - **Per-condition timestamps:** `parts` has 4 crawl timestamps: `lastSoldCrawlN/U`, `lastStockCrawlN/U`. Prevents marking Used as "fresh" when only New was crawled.
 - **VAT included:** BL API called with `vat=Y` parameter for gross prices matching the website.
@@ -73,6 +73,7 @@ BrickLink API (OAuth 1.0, country_code=DE) -> Crawler loop (dynamic picking) -> 
 - **Minimal feature set (Public-Release).** Nur Preis-Tracking + Empfehlungen + Sales-View. Alle AI-Features, Part-Out-Analyse, Restock-Recommendation und Insights sind entfernt.
 - **Lot pricing cache:** `suggestedPrice`, `marketStockMedian`, `marketSoldMedian`, `trend` are **persisted on `user_watchlists`** and recomputed by triggers (Crawler after sold/stock update, Inventory-Sync, Watchlist PUT, Settings update on formula change). Watchlist API reads cached values directly — no live aggregation. See `src/lib/lot-pricing.ts`. Backfill script: `scripts/backfill-lot-pricing.ts`.
 - **Sales page (`/sales`):** shows imported BSX orders — KPI cards (30/90/180d + total), 12-month bars, top-10 parts by quantity, paginated + filterable list (platform, part-no/color search). Data source is exclusively BSX-import into `my_sales`. Customer field stays in DB but is not shown.
+- **BSX-Export (`/api/watchlist/export-bsx`):** 1:1 round-trip mirror of the user's BL inventory with only the recommended price differing. Field mapping is critical: `<Remarks>` gets `user_watchlists.remarks` (private storage location like `TA039`), `<Comments>` gets `description` (public BL description). `<Cost>` = `myCost/myQuantity` (per-unit — DB stores lot total). `<LotID>` = `blInventoryId` — BrickStore matches by this on re-upload and preserves everything else. `<DateAdded>` from `bl_date_added` (BL `date_created`). Only lots with `bl_inventory_id` are exported (safety — no round-trip anchor otherwise). Locked-price lots (`priceLocked=true`) use `myPrice` regardless of formula.
 - **External API:** `/api/external/price?partNo=…&colorId=…&itemType=…&condition=…` with Bearer token (table `external_tokens`). Returns suggested price + market medians, creates parts on-demand if not in DB, deletes them on BL 404. Middleware allows `/api/external` through token-auth-only. See `src/app/api/external/price/route.ts`.
 - **HTML entities:** BL API returns names with `&#40;` etc. — always decode via `decodeHtmlEntities()` from `src/lib/html-entities.ts` before storing.
 - **SQL performance:** When aggregating `price_stock` for "latest snapshot", use `WITH latest AS (SELECT DISTINCT ON ...)` + JOIN, **never** correlated subquery `fetched_at = (SELECT MAX(...) FROM price_stock ps2 WHERE ...)` — that pattern caused 4-43s queries when scanning multiple parts.
@@ -95,14 +96,14 @@ BrickLink API (OAuth 1.0, country_code=DE) -> Crawler loop (dynamic picking) -> 
 
 ### Database
 
-- `users` -- accounts with `crawlerEnabled`, `autoSyncInventory`, `freshDays`, `pricingFormulas`, `shippingCountries`, `isAdmin`
+- `users` -- accounts with `crawlerEnabled`, `autoSyncInventory`, `freshDays`, `pricingFormulas`, `shippingCountries` (buyer filter), `sellerCountries` (seller filter, default `DE`), `isAdmin`
 - `user_api_keys` -- encrypted BrickLink OAuth credentials per user, daily limit, `externalCalls` (JSON)
 - `api_call_log` -- rolling 24h API call tracking per key (id, apiKeyId, createdAt)
 - `parts` -- master data with per-condition crawl timestamps (`lastSoldCrawlN/U`, `lastStockCrawlN/U`)
 - `price_daily` -- daily aggregates per part/condition (min, max, avg, qty_avg)
 - `price_sales` -- individual sales, **partitioned by month** on `date_ordered`, dedup via unique index
 - `price_stock` -- current offers snapshot, replaced daily per part/condition
-- `user_watchlists` -- per-user tracked parts with `bl_inventory_id`, `description`, `myPrice`, `myQuantity`, `saleRate`, `myCost` (**lot total**, not per-unit), `remarks`, `prevQuantity`, `changedAt`, `priceLocked`, alert thresholds, **and the pricing cache: `suggestedPrice`, `suggestedRuleName`, `marketStockMedian`, `marketSoldMedian`, `trend`, `pricingComputedAt`**
+- `user_watchlists` -- per-user tracked parts with `bl_inventory_id`, `description` (public BL description), `remarks` (private BL storage location like `TA039`), `myPrice`, `myQuantity`, `saleRate`, `myCost` (**lot total**, not per-unit), `bulk` (BL bulk qty, default 1), `blDateAdded` (BL `date_created`), `prevQuantity`, `changedAt`, `priceLocked`, alert thresholds, **and the pricing cache: `suggestedPrice`, `suggestedRuleName`, `marketStockMedian`, `marketSoldMedian`, `trend`, `pricingComputedAt`**
 - `my_sales` -- detected own sales (quantity decrease during sync), tracks price, quantity, timestamp
 - `external_tokens` -- API tokens for external integrations (`/api/external/*`), managed via `/settings`
 - `crawl_queue` -- legacy table (exists in schema but crawler picks dynamically instead)

@@ -17,7 +17,10 @@ export async function GET() {
     where: { id: userId },
     select: {
       autoSyncInventory: true, crawlerEnabled: true, freshDays: true,
-      pricingFormulas: true, shippingCountries: true, bsxOrdersDir: true,
+      pricingFormulas: true, shippingCountries: true, sellerCountries: true,
+      bsxOrdersDir: true, bsxSourceType: true,
+      bsxSmbHost: true, bsxSmbShare: true, bsxSmbSubpath: true,
+      bsxSmbDomain: true, bsxSmbUser: true, bsxSmbPasswordEnc: true,
     },
   });
 
@@ -30,13 +33,22 @@ export async function GET() {
     try { pricingFormulas = JSON.parse(user.pricingFormulas); } catch { /* ignore */ }
   }
 
-  const countries = await prisma.$queryRaw<{ buyer_country: string; sales: number }[]>`
-    SELECT buyer_country, COUNT(*)::int as sales
-    FROM price_sales
-    WHERE buyer_country IS NOT NULL
-    GROUP BY buyer_country
-    ORDER BY sales DESC
-  `;
+  const [buyerCountries, sellerCountriesAgg] = await Promise.all([
+    prisma.$queryRaw<{ buyer_country: string; sales: number }[]>`
+      SELECT buyer_country, COUNT(*)::int as sales
+      FROM price_sales
+      WHERE buyer_country IS NOT NULL
+      GROUP BY buyer_country
+      ORDER BY sales DESC
+    `,
+    prisma.$queryRaw<{ seller_country: string; sales: number }[]>`
+      SELECT seller_country, COUNT(*)::int as sales
+      FROM price_sales
+      WHERE seller_country IS NOT NULL
+      GROUP BY seller_country
+      ORDER BY sales DESC
+    `,
+  ]);
 
   return NextResponse.json({
     autoSyncInventory: user.autoSyncInventory,
@@ -44,11 +56,25 @@ export async function GET() {
     freshDays: user.freshDays,
     pricingFormulas,
     shippingCountries: user.shippingCountries ? user.shippingCountries.split(",") : null,
-    availableCountries: countries.map((c) => ({
+    sellerCountries: user.sellerCountries ? user.sellerCountries.split(",") : null,
+    availableCountries: buyerCountries.map((c) => ({
       code: c.buyer_country,
       sales: c.sales,
     })),
+    availableSellerCountries: sellerCountriesAgg.map((c) => ({
+      code: c.seller_country,
+      sales: c.sales,
+    })),
     bsxOrdersDir: user.bsxOrdersDir,
+    bsxSource: {
+      type: user.bsxSourceType,
+      smbHost: user.bsxSmbHost,
+      smbShare: user.bsxSmbShare,
+      smbSubpath: user.bsxSmbSubpath,
+      smbDomain: user.bsxSmbDomain,
+      smbUser: user.bsxSmbUser,
+      smbPasswordSet: !!user.bsxSmbPasswordEnc,
+    },
   });
 }
 
@@ -66,7 +92,17 @@ export async function POST(request: Request) {
     freshDays?: number;
     pricingFormulas?: PricingRule[];
     shippingCountries?: string[] | null;
+    sellerCountries?: string[] | null;
     bsxOrdersDir?: string | null;
+    bsxSource?: {
+      type?: "local" | "smb";
+      smbHost?: string | null;
+      smbShare?: string | null;
+      smbSubpath?: string | null;
+      smbDomain?: string | null;
+      smbUser?: string | null;
+      smbPassword?: string | null;  // null = keep existing, "" = clear, string = new
+    } | null;
   };
   try {
     body = await request.json();
@@ -80,7 +116,15 @@ export async function POST(request: Request) {
     freshDays?: number;
     pricingFormulas?: string | null;
     shippingCountries?: string | null;
+    sellerCountries?: string | null;
     bsxOrdersDir?: string | null;
+    bsxSourceType?: string;
+    bsxSmbHost?: string | null;
+    bsxSmbShare?: string | null;
+    bsxSmbSubpath?: string | null;
+    bsxSmbDomain?: string | null;
+    bsxSmbUser?: string | null;
+    bsxSmbPasswordEnc?: Buffer | null;
   } = {};
 
   if (typeof body.autoSyncInventory === "boolean") {
@@ -89,8 +133,26 @@ export async function POST(request: Request) {
   if (typeof body.crawlerEnabled === "boolean") {
     data.crawlerEnabled = body.crawlerEnabled;
   }
-  if (typeof body.freshDays === "number" && body.freshDays >= 1 && body.freshDays <= 90) {
-    data.freshDays = Math.round(body.freshDays);
+  if (typeof body.freshDays === "number") {
+    const days = Math.round(body.freshDays);
+    if (days < 30 || days > 365) {
+      return NextResponse.json({ error: "freshDays muss zwischen 30 und 365 Tagen liegen" }, { status: 400 });
+    }
+    // Block if the maintenance cadence would exceed the user's total daily API limit.
+    const [watchlistCount, apiKeys] = await Promise.all([
+      prisma.userWatchlist.count({ where: { userId } }),
+      prisma.userApiKey.findMany({ where: { userId, isValid: true }, select: { dailyLimit: true } }),
+    ]);
+    const totalLimit = apiKeys.reduce((s, k) => s + k.dailyLimit, 0);
+    const requiredPerDay = Math.ceil((watchlistCount * 2) / days);
+    if (totalLimit > 0 && requiredPerDay > totalLimit) {
+      return NextResponse.json({
+        error: `Nicht möglich: ${watchlistCount} Lots × 2 Calls / ${days} Tage = ~${requiredPerDay} Calls/Tag benötigt, dein Limit ist ${totalLimit}. Wähle einen längeren Zeitraum oder erhöhe das API-Limit.`,
+        requiredPerDay,
+        totalLimit,
+      }, { status: 400 });
+    }
+    data.freshDays = days;
   }
   if (body.pricingFormulas !== undefined) {
     if (Array.isArray(body.pricingFormulas)) {
@@ -134,6 +196,23 @@ export async function POST(request: Request) {
       data.shippingCountries = cleaned.length > 0 ? cleaned.join(",") : null;
     }
   }
+  if (body.sellerCountries !== undefined) {
+    if (body.sellerCountries === null) {
+      data.sellerCountries = null;
+    } else if (Array.isArray(body.sellerCountries)) {
+      if (body.sellerCountries.length > 50) {
+        return NextResponse.json({ error: "Maximal 50 Verkäufer-Länder" }, { status: 400 });
+      }
+      const cleaned: string[] = [];
+      for (const c of body.sellerCountries) {
+        if (typeof c !== "string" || !/^[A-Z]{2}$/.test(c.trim().toUpperCase())) {
+          return NextResponse.json({ error: `Ungültiger Verkäufer-Ländercode: ${c}` }, { status: 400 });
+        }
+        cleaned.push(c.trim().toUpperCase());
+      }
+      data.sellerCountries = cleaned.length > 0 ? cleaned.join(",") : null;
+    }
+  }
   if (body.bsxOrdersDir !== undefined) {
     // Free-form path — restricted to admins because the scheduler + import routes
     // grant read access to any location the process can reach. Non-admins can't
@@ -145,17 +224,58 @@ export async function POST(request: Request) {
     const trimmed = typeof body.bsxOrdersDir === "string" ? body.bsxOrdersDir.trim() : "";
     data.bsxOrdersDir = trimmed.length > 0 ? trimmed : null;
   }
+  if (body.bsxSource !== undefined) {
+    const me = await prisma.user.findUnique({ where: { id: userId }, select: { isAdmin: true } });
+    if (!me?.isAdmin) {
+      return NextResponse.json({ error: "Nur Admin darf BSX-Quelle setzen" }, { status: 403 });
+    }
+    const s = body.bsxSource;
+    const type = s?.type === "smb" ? "smb" : "local";
+    data.bsxSourceType = type;
+    if (type === "smb") {
+      const host = (s?.smbHost || "").trim();
+      const share = (s?.smbShare || "").trim();
+      const user = (s?.smbUser || "").trim();
+      if (!host || !share || !user) {
+        return NextResponse.json({ error: "SMB benötigt host, share und user" }, { status: 400 });
+      }
+      data.bsxSmbHost = host;
+      data.bsxSmbShare = share;
+      data.bsxSmbSubpath = (s?.smbSubpath || "").trim() || null;
+      data.bsxSmbDomain = (s?.smbDomain || "").trim() || null;
+      data.bsxSmbUser = user;
+      // Password handling: undefined/null → keep, "" → clear, other → encrypt
+      if (s?.smbPassword === undefined || s?.smbPassword === null) {
+        // keep existing — don't set field
+      } else if (s.smbPassword === "") {
+        data.bsxSmbPasswordEnc = null;
+      } else {
+        const { encrypt } = await import("@/lib/encryption");
+        data.bsxSmbPasswordEnc = encrypt(s.smbPassword);
+      }
+    }
+    // For type="local" we DON'T wipe the SMB fields — user might toggle back
+    // to SMB later without re-entering everything. Only the type field decides
+    // which fields the loader reads.
+  }
 
   const updated = await prisma.user.update({
     where: { id: userId },
     data,
     select: {
       autoSyncInventory: true, crawlerEnabled: true, freshDays: true,
-      pricingFormulas: true, shippingCountries: true, bsxOrdersDir: true,
+      pricingFormulas: true, shippingCountries: true, sellerCountries: true,
+      bsxOrdersDir: true, bsxSourceType: true,
+      bsxSmbHost: true, bsxSmbShare: true, bsxSmbSubpath: true,
+      bsxSmbDomain: true, bsxSmbUser: true, bsxSmbPasswordEnc: true,
     },
   });
 
-  if (body.pricingFormulas !== undefined || body.shippingCountries !== undefined) {
+  if (
+    body.pricingFormulas !== undefined ||
+    body.shippingCountries !== undefined ||
+    body.sellerCountries !== undefined
+  ) {
     try {
       const { recomputeAllLotsForUser } = await import("@/lib/lot-pricing");
       await recomputeAllLotsForUser(userId);
@@ -175,6 +295,16 @@ export async function POST(request: Request) {
     freshDays: updated.freshDays,
     pricingFormulas: updatedFormulas,
     shippingCountries: updated.shippingCountries ? updated.shippingCountries.split(",") : null,
+    sellerCountries: updated.sellerCountries ? updated.sellerCountries.split(",") : null,
     bsxOrdersDir: updated.bsxOrdersDir,
+    bsxSource: {
+      type: updated.bsxSourceType,
+      smbHost: updated.bsxSmbHost,
+      smbShare: updated.bsxSmbShare,
+      smbSubpath: updated.bsxSmbSubpath,
+      smbDomain: updated.bsxSmbDomain,
+      smbUser: updated.bsxSmbUser,
+      smbPasswordSet: !!updated.bsxSmbPasswordEnc,
+    },
   });
 }

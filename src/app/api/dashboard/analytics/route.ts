@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getShippingCountries } from "@/lib/user-settings";
+import { getCountryFilters } from "@/lib/user-settings";
 import { evaluateFormula, findMatchingRule, type PricingRule } from "@/lib/pricing-engine";
 
 export const dynamic = "force-dynamic";
@@ -13,12 +13,14 @@ export async function GET() {
   }
 
   const userId = parseInt(session.user.id);
-  const countries = await getShippingCountries(userId);
+  const { shippingCountries, sellerCountries } = await getCountryFilters(userId);
   const d90 = new Date(Date.now() - 90 * 86400000);
 
-  const cf = countries ? "AND s.buyer_country = ANY($3)" : "";
   const baseParams: unknown[] = [userId, d90];
-  if (countries) baseParams.push(countries);
+  let bp = 3;
+  let cf = "";
+  if (shippingCountries) { cf += ` AND s.buyer_country = ANY($${bp++})`; baseParams.push(shippingCountries); }
+  if (sellerCountries)   { cf += ` AND s.seller_country = ANY($${bp++})`; baseParams.push(sellerCountries); }
 
   const [slowMovers, marginAnalysis, turnover] = await Promise.all([
     // B) Ladenhüter — wenigste Verkäufe vs. eigenem Bestand
@@ -93,6 +95,19 @@ export async function GET() {
 
   if (pricingRules.length > 0) {
     const sixMonthsAgo = new Date(); sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+    const marginParams: unknown[] = [userId, sixMonthsAgo];
+    let mp = 3;
+    let msoldCf = "";
+    if (shippingCountries) { msoldCf += ` AND s.buyer_country = ANY($${mp++})`; marginParams.push(shippingCountries); }
+    if (sellerCountries)   { msoldCf += ` AND s.seller_country = ANY($${mp++})`; marginParams.push(sellerCountries); }
+    let mstockCf = "";
+    let mstockCfOuter = "";
+    if (sellerCountries) {
+      const idx = mp++;
+      mstockCf = ` AND seller_country = ANY($${idx})`;
+      mstockCfOuter = ` AND ps.seller_country = ANY($${idx})`;
+      marginParams.push(sellerCountries);
+    }
     const marginData = await prisma.$queryRawUnsafe<Array<{
       part_id: number; part_no: string; color_id: number; part_name: string | null;
       color_name: string | null; item_type: string; new_or_used: string;
@@ -112,13 +127,13 @@ export async function GET() {
           (SUM(s.unit_price * s.quantity) / NULLIF(SUM(s.quantity), 0))::float as sold_avg
         FROM price_sales s
         WHERE s.part_id IN (SELECT part_id FROM user_lots)
-          AND s.date_ordered >= $2 ${cf}
+          AND s.date_ordered >= $2 ${msoldCf}
         GROUP BY s.part_id, s.new_or_used
       ),
       latest_stock AS (
         SELECT DISTINCT ON (part_id, new_or_used) part_id, new_or_used, fetched_at
         FROM price_stock
-        WHERE part_id IN (SELECT part_id FROM user_lots)
+        WHERE part_id IN (SELECT part_id FROM user_lots) ${mstockCf}
         ORDER BY part_id, new_or_used, fetched_at DESC
       ),
       stock_stats AS (
@@ -127,6 +142,7 @@ export async function GET() {
           (SUM(ps.unit_price * ps.quantity) / NULLIF(SUM(ps.quantity), 0))::float as stock_avg
         FROM price_stock ps
         JOIN latest_stock l ON l.part_id = ps.part_id AND l.new_or_used = ps.new_or_used AND l.fetched_at = ps.fetched_at
+          ${mstockCfOuter}
         GROUP BY ps.part_id, ps.new_or_used
       )
       SELECT ul.part_id, ul.part_no, ul.color_id, ul.part_name, ul.color_name, ul.item_type, ul.category_id,
@@ -136,7 +152,7 @@ export async function GET() {
       FROM user_lots ul
       LEFT JOIN sold_stats ss ON ss.part_id = ul.part_id AND ss.new_or_used = ul.new_or_used
       LEFT JOIN stock_stats stk ON stk.part_id = ul.part_id AND stk.new_or_used = ul.new_or_used`,
-      userId, sixMonthsAgo, ...(countries ? [countries] : [])
+      ...marginParams
     );
 
     for (const item of marginData) {

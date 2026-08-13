@@ -1,6 +1,6 @@
 import { prisma } from './db'
 import { evaluateFormula, findMatchingRule, type PricingRule, type PricingVars } from './pricing-engine'
-import { getShippingCountries } from './user-settings'
+import { getCountryFilters } from './user-settings'
 
 interface SoldStats {
   sold7d_median: number | null; sold30d_median: number | null
@@ -49,17 +49,27 @@ function computeTrend(recent: number | null, previous: number | null): string {
   return 'stable'
 }
 
-async function loadUserContext(userId: number): Promise<{ rules: PricingRule[]; countries: string[] | null }> {
+interface UserContext {
+  rules: PricingRule[]
+  shippingCountries: string[] | null
+  sellerCountries: string[] | null
+}
+
+async function loadUserContext(userId: number): Promise<UserContext> {
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { pricingFormulas: true } })
   let rules: PricingRule[] = []
   if (user?.pricingFormulas) {
     try { rules = JSON.parse(user.pricingFormulas) } catch { /* ignore */ }
   }
-  const countries = await getShippingCountries(userId)
-  return { rules, countries }
+  const { shippingCountries, sellerCountries } = await getCountryFilters(userId)
+  return { rules, shippingCountries, sellerCountries }
 }
 
-async function fetchSoldStatsForParts(partIds: number[], countries: string[] | null): Promise<Map<string, SoldStats>> {
+async function fetchSoldStatsForParts(
+  partIds: number[],
+  shippingCountries: string[] | null,
+  sellerCountries: string[] | null,
+): Promise<Map<string, SoldStats>> {
   if (partIds.length === 0) return new Map()
   const d7 = new Date(Date.now() - 7 * 86400000)
   const d30 = new Date(Date.now() - 30 * 86400000)
@@ -67,9 +77,11 @@ async function fetchSoldStatsForParts(partIds: number[], countries: string[] | n
   const d90 = new Date(Date.now() - 90 * 86400000)
   const sixMonthsAgo = new Date(); sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6)
 
-  const cf = countries ? "AND buyer_country = ANY($7)" : ""
   const params: unknown[] = [partIds, d7, d30, d60, d90, sixMonthsAgo]
-  if (countries) params.push(countries)
+  let p = 7
+  let cf = ""
+  if (shippingCountries) { cf += ` AND buyer_country = ANY($${p++})`; params.push(shippingCountries) }
+  if (sellerCountries)   { cf += ` AND seller_country = ANY($${p++})`; params.push(sellerCountries) }
 
   const rows = await prisma.$queryRawUnsafe<Array<{ part_id: number; new_or_used: string } & SoldStats>>(
     `SELECT part_id, new_or_used,
@@ -103,12 +115,18 @@ async function fetchSoldStatsForParts(partIds: number[], countries: string[] | n
   return map
 }
 
-async function fetchStockStatsForParts(partIds: number[]): Promise<Map<string, StockStats>> {
+async function fetchStockStatsForParts(
+  partIds: number[],
+  sellerCountries: string[] | null,
+): Promise<Map<string, StockStats>> {
   if (partIds.length === 0) return new Map()
+  const params: unknown[] = [partIds]
+  const cf = sellerCountries ? (params.push(sellerCountries), " AND seller_country = ANY($2)") : ""
+
   const rows = await prisma.$queryRawUnsafe<Array<{ part_id: number; new_or_used: string } & StockStats>>(
     `WITH latest AS (
       SELECT DISTINCT ON (part_id, new_or_used) part_id, new_or_used, fetched_at
-      FROM price_stock WHERE part_id = ANY($1)
+      FROM price_stock WHERE part_id = ANY($1) ${cf}
       ORDER BY part_id, new_or_used, fetched_at DESC
     )
     SELECT ps.part_id, ps.new_or_used,
@@ -118,8 +136,9 @@ async function fetchStockStatsForParts(partIds: number[]): Promise<Map<string, S
       COUNT(*)::int as stock_count, COALESCE(SUM(ps.quantity), 0)::int as stock_qty
     FROM price_stock ps
     JOIN latest l ON ps.part_id = l.part_id AND ps.new_or_used = l.new_or_used AND ps.fetched_at = l.fetched_at
+    ${cf ? "WHERE ps.seller_country = ANY($2)" : ""}
     GROUP BY ps.part_id, ps.new_or_used`,
-    partIds
+    ...params
   )
   const map = new Map<string, StockStats>()
   for (const r of rows) map.set(`${r.part_id}:${r.new_or_used}`, r)
@@ -177,12 +196,12 @@ export async function recomputeLotPricing(watchlistId: number): Promise<void> {
   })
   if (!w) return
 
-  const { rules, countries } = await loadUserContext(w.userId)
+  const { rules, shippingCountries, sellerCountries } = await loadUserContext(w.userId)
   const partIds = [w.partId]
 
   const [soldStats, stockStats] = await Promise.all([
-    fetchSoldStatsForParts(partIds, countries),
-    fetchStockStatsForParts(partIds),
+    fetchSoldStatsForParts(partIds, shippingCountries, sellerCountries),
+    fetchStockStatsForParts(partIds, sellerCountries),
   ])
 
   const key = `${w.partId}:${w.newOrUsed}`
@@ -226,10 +245,10 @@ export async function recomputeAllLotsForPart(partId: number, newOrUsed: 'N' | '
   }
 
   for (const [userId, userLots] of Array.from(byUser.entries())) {
-    const { rules, countries } = await loadUserContext(userId)
+    const { rules, shippingCountries, sellerCountries } = await loadUserContext(userId)
     const [soldStats, stockStats] = await Promise.all([
-      fetchSoldStatsForParts([partId], countries),
-      fetchStockStatsForParts([partId]),
+      fetchSoldStatsForParts([partId], shippingCountries, sellerCountries),
+      fetchStockStatsForParts([partId], sellerCountries),
     ])
     for (const w of userLots) {
       const row: WatchlistRow = {
@@ -265,12 +284,12 @@ export async function recomputeAllLotsForUser(userId: number): Promise<{ updated
   })
   if (lots.length === 0) return { updated: 0 }
 
-  const { rules, countries } = await loadUserContext(userId)
+  const { rules, shippingCountries, sellerCountries } = await loadUserContext(userId)
   const partIds = Array.from(new Set(lots.map(l => l.partId)))
 
   const [soldStats, stockStats] = await Promise.all([
-    fetchSoldStatsForParts(partIds, countries),
-    fetchStockStatsForParts(partIds),
+    fetchSoldStatsForParts(partIds, shippingCountries, sellerCountries),
+    fetchStockStatsForParts(partIds, sellerCountries),
   ])
 
   // Build per-lot results, then batch-update via UNNEST

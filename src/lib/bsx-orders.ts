@@ -1,8 +1,7 @@
-import { promises as fs } from 'fs'
-import { join } from 'path'
 import { parseStringPromise } from 'xml2js'
 import { prisma } from './db'
 import { decodeHtmlEntities } from './html-entities'
+import { listOrderFiles, readOrderFile, type BsxSource } from './bsx-source'
 
 const ITEM_TYPE_MAP: Record<string, string> = {
   P: 'PART',
@@ -56,8 +55,7 @@ interface BsxItem {
   Condition?: string[]
 }
 
-export async function parseBsxFile(filePath: string): Promise<ParsedOrder | null> {
-  const raw = await fs.readFile(filePath, 'utf-8')
+export async function parseBsxContent(raw: string): Promise<ParsedOrder | null> {
   const parsed: BsxXml = await parseStringPromise(raw)
   const order = parsed.BrickStoreXML?.Order?.[0]
   if (!order) return null
@@ -134,21 +132,20 @@ export interface ImportResult {
 }
 
 /**
- * Import all BSX files from a directory. Idempotent (relies on UNIQUE INDEX).
- * Returns counts. `userId` is the user the orders belong to.
+ * Import all BSX files from a source (local dir or SMB share). Idempotent
+ * (relies on UNIQUE INDEX). `userId` is the user the orders belong to.
  */
-export async function importBsxDirectory(dirPath: string, userId: number): Promise<ImportResult> {
+export async function importBsxSource(source: BsxSource, userId: number): Promise<ImportResult> {
   const result: ImportResult = {
     ordersProcessed: 0, itemsImported: 0, itemsSkipped: 0, partsCreated: 0, errors: [],
   }
 
-  const files = await fs.readdir(dirPath)
-  const bsxFiles = files.filter(f => f.endsWith('.bsx'))
+  const bsxFiles = await listOrderFiles(source)
 
   for (const file of bsxFiles) {
-    const fullPath = join(dirPath, file)
     try {
-      const order = await parseBsxFile(fullPath)
+      const buf = await readOrderFile(source, file)
+      const order = await parseBsxContent(buf.toString('utf-8'))
       if (!order) continue
 
       const platform = order.service === 'BrickOwl' ? 'BO' : 'BL'

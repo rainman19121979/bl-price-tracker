@@ -63,10 +63,12 @@ export async function syncBricklinkInventory(userId: number): Promise<SyncResult
     const newOrUsed = (item.new_or_used === 'N' ? 'N' : 'U') as 'N' | 'U'
     const price = parseFloat(item.unit_price) || null
     const qty = item.quantity || 0
-    const desc = item.description || null
+    const desc = item.description ? decodeHtmlEntities(item.description) : null
     const saleRate = item.sale_rate || 0
     const myCost = parseFloat(item.my_cost) || null
-    const rmks = item.remarks || null
+    const rmks = item.remarks ? decodeHtmlEntities(item.remarks) : null
+    const bulk = item.bulk && item.bulk > 0 ? item.bulk : 1
+    const blDateAdded = item.date_created ? new Date(item.date_created) : null
 
     try {
       const partKey = `${partNo}:${colorId}:${itemType}`
@@ -110,7 +112,8 @@ export async function syncBricklinkInventory(userId: number): Promise<SyncResult
           data: {
             myPrice: price, myQuantity: qty, prevQuantity: oldQty,
             changedAt: (qtyChanged || priceChanged) ? new Date() : existing.changedAt,
-            description: desc, saleRate, myCost, remarks: rmks,
+            description: desc, saleRate, myCost, remarks: rmks, bulk,
+            blDateAdded: blDateAdded ?? existing.blDateAdded,
             partId: part.id, newOrUsed,
           },
         })
@@ -120,7 +123,7 @@ export async function syncBricklinkInventory(userId: number): Promise<SyncResult
           data: {
             userId, partId: part.id, newOrUsed, blInventoryId,
             myPrice: price, myQuantity: qty, description: desc,
-            saleRate, myCost, remarks: rmks,
+            saleRate, myCost, remarks: rmks, bulk, blDateAdded,
           },
         })
 

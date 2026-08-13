@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getShippingCountries } from "@/lib/user-settings";
+import { getCountryFilters } from "@/lib/user-settings";
 import { redis } from "@/lib/redis";
 import { evaluateFormula, findMatchingRule, type PricingRule, type PricingVars } from "@/lib/pricing-engine";
 
@@ -31,11 +31,21 @@ export async function GET() {
 
   const sixMonthsAgo = new Date();
   sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-  const countries = await getShippingCountries(userId);
+  const { shippingCountries, sellerCountries } = await getCountryFilters(userId);
 
-  const countryFilter = countries ? "AND buyer_country = ANY($3)" : "";
   const queryArgs: (number | Date | string[])[] = [userId, sixMonthsAgo];
-  if (countries) queryArgs.push(countries);
+  let p = 3;
+  let soldCf = "";
+  if (shippingCountries) { soldCf += ` AND buyer_country = ANY($${p++})`; queryArgs.push(shippingCountries); }
+  if (sellerCountries)   { soldCf += ` AND seller_country = ANY($${p++})`; queryArgs.push(sellerCountries); }
+  let stockCf = "";
+  let stockCfOuter = "";
+  if (sellerCountries) {
+    const idx = p++;
+    stockCf = ` AND seller_country = ANY($${idx})`;
+    stockCfOuter = ` AND s.seller_country = ANY($${idx})`;
+    queryArgs.push(sellerCountries);
+  }
 
   // Fast path: precompute the latest fetched_at per (part_id, new_or_used)
   // among the user's own lots, then join stock stats against that.
@@ -51,6 +61,7 @@ export async function GET() {
         part_id, new_or_used, fetched_at
       FROM price_stock
       WHERE (part_id, new_or_used) IN (SELECT part_id, new_or_used FROM user_lots)
+        ${stockCf}
       ORDER BY part_id, new_or_used, fetched_at DESC
     ),
     stock_stats AS (
@@ -60,6 +71,7 @@ export async function GET() {
       FROM price_stock s
       JOIN latest_stock ls
         ON ls.part_id = s.part_id AND ls.new_or_used = s.new_or_used AND ls.fetched_at = s.fetched_at
+        ${stockCfOuter}
       GROUP BY s.part_id, s.new_or_used
     )
     SELECT
@@ -75,7 +87,7 @@ export async function GET() {
         (SUM(unit_price * quantity) / NULLIF(SUM(quantity), 0))::float as qty_avg_price
       FROM price_sales
       WHERE part_id = w.part_id AND new_or_used = w.new_or_used
-        AND date_ordered >= $2 ${countryFilter}
+        AND date_ordered >= $2 ${soldCf}
     ) sold ON true
     LEFT JOIN stock_stats stock
       ON stock.part_id = w.part_id AND stock.new_or_used = w.new_or_used
@@ -113,6 +125,7 @@ export async function GET() {
         SELECT DISTINCT ON (part_id, new_or_used) part_id, new_or_used, fetched_at
         FROM price_stock
         WHERE (part_id, new_or_used) IN (SELECT part_id, new_or_used FROM user_lots)
+          ${stockCf}
         ORDER BY part_id, new_or_used, fetched_at DESC
       ),
       stock_stats AS (
@@ -124,6 +137,7 @@ export async function GET() {
         FROM price_stock s
         JOIN latest_stock ls
           ON ls.part_id = s.part_id AND ls.new_or_used = s.new_or_used AND ls.fetched_at = s.fetched_at
+          ${stockCfOuter}
         GROUP BY s.part_id, s.new_or_used
       )
       SELECT w.my_price::float, w.my_quantity, w.my_cost::float, w.new_or_used, w.sale_rate, w.price_locked,
@@ -138,7 +152,7 @@ export async function GET() {
         SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY unit_price)::float as median_price,
           (SUM(unit_price * quantity) / NULLIF(SUM(quantity), 0))::float as qty_avg_price
         FROM price_sales WHERE part_id = w.part_id AND new_or_used = w.new_or_used AND date_ordered >= $2
-          ${countryFilter}
+          ${soldCf}
       ) sold ON true
       LEFT JOIN stock_stats stock
         ON stock.part_id = w.part_id AND stock.new_or_used = w.new_or_used

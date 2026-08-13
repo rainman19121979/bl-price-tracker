@@ -3,36 +3,36 @@
 import { useState } from "react";
 import { Loader2 } from "lucide-react";
 
-interface ShippingCountriesSectionProps {
+interface SellerCountriesSectionProps {
   initialCountries: string[] | null;
   availableCountries: { code: string; sales: number }[];
   onError: (msg: string) => void;
   onSuccess: (msg: string) => void;
 }
 
-export function ShippingCountriesSection({
+export function SellerCountriesSection({
   initialCountries,
   availableCountries,
   onError,
   onSuccess,
-}: ShippingCountriesSectionProps) {
-  const [shippingCountries, setShippingCountries] = useState<string[] | null>(initialCountries);
-  const [countrySaving, setCountrySaving] = useState(false);
+}: SellerCountriesSectionProps) {
+  const [sellerCountries, setSellerCountries] = useState<string[] | null>(initialCountries);
+  const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
-    setCountrySaving(true);
+    setSaving(true);
     onError("");
     try {
       const res = await fetch("/api/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ shippingCountries }),
+        body: JSON.stringify({ sellerCountries }),
       });
       if (res.ok) {
         onSuccess(
-          shippingCountries === null
-            ? "Alle Laender aktiv"
-            : `${shippingCountries.length} ${shippingCountries.length === 1 ? "Land" : "Laender"} gespeichert`
+          sellerCountries === null
+            ? "Alle Verkaeuferlaender aktiv"
+            : `${sellerCountries.length} ${sellerCountries.length === 1 ? "Land" : "Laender"} gespeichert`
         );
       } else {
         onError("Fehler beim Speichern");
@@ -40,20 +40,20 @@ export function ShippingCountriesSection({
     } catch {
       onError("Netzwerkfehler");
     } finally {
-      setCountrySaving(false);
+      setSaving(false);
     }
   };
 
   return (
     <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
       <div>
-        <h2 className="text-lg font-semibold text-gray-900">Versandlaender (Kaeufer)</h2>
+        <h2 className="text-lg font-semibold text-gray-900">Verkaeuferlaender</h2>
         <p className="mt-1 text-sm text-gray-500">
-          Waehle die Laender in die du versendest. Nur Verkaeufe an diese Kaeuferlaender
-          werden fuer die Preisberechnung beruecksichtigt.
+          Waehle die Verkaeuferlaender, die fuer Preisberechnung beruecksichtigt werden sollen
+          (Sold + Stock). Beispiel: DE + CH nutzt nur Angebote aus diesen beiden Laendern.
         </p>
         <p className="mt-1 text-xs text-gray-400">
-          Stock-Angebote sind davon nicht betroffen (kein Kaeuferland verfuegbar).
+          Daten werden global von BrickLink geholt; hier filterst du nachtraeglich.
         </p>
       </div>
 
@@ -61,12 +61,12 @@ export function ShippingCountriesSection({
         <label className="flex items-center gap-2 mb-3">
           <input
             type="checkbox"
-            checked={shippingCountries === null}
+            checked={sellerCountries === null}
             onChange={() => {
-              if (shippingCountries === null) {
-                setShippingCountries(["DE"]);
+              if (sellerCountries === null) {
+                setSellerCountries(["DE"]);
               } else {
-                setShippingCountries(null);
+                setSellerCountries(null);
               }
             }}
             className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
@@ -74,15 +74,15 @@ export function ShippingCountriesSection({
           <span className="text-sm font-medium text-gray-700">Alle Laender (kein Filter)</span>
         </label>
 
-        {shippingCountries !== null && (
+        {sellerCountries !== null && (
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8">
             {availableCountries.map((country) => (
               <label key={country.code} className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm hover:bg-gray-50 cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={shippingCountries.includes(country.code)}
+                  checked={sellerCountries.includes(country.code)}
                   onChange={() => {
-                    setShippingCountries((prev) => {
+                    setSellerCountries((prev) => {
                       if (!prev) return [country.code];
                       return prev.includes(country.code)
                         ? prev.filter((c) => c !== country.code)
@@ -101,10 +101,10 @@ export function ShippingCountriesSection({
         <div className="mt-4">
           <button
             onClick={handleSave}
-            disabled={countrySaving}
+            disabled={saving}
             className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
           >
-            {countrySaving && <Loader2 className="h-4 w-4 animate-spin" />}
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
             Speichern
           </button>
         </div>

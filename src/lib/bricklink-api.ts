@@ -79,6 +79,7 @@ export interface InventoryItem {
   stock_room_id: string
   my_cost: string
   sale_rate: number
+  date_created?: string
   tier_quantity1: number
   tier_price1: string
   tier_quantity2: number
@@ -264,17 +265,21 @@ export class BrickLinkClient {
     itemType: string,
     colorId: number,
     newOrUsed: 'N' | 'U',
-    countryCode: string = 'DE',
-    guideType: 'sold' | 'stock' = 'sold'
+    guideType: 'sold' | 'stock' = 'sold',
+    countryCode?: string,
   ): Promise<PriceGuideResponse> {
+    // No country_code by default: BL returns all sellers/sales worldwide,
+    // each price_detail entry carries seller_country_code so we can
+    // filter per-user in SQL. Pass a code to narrow at the BL side
+    // (e.g. `test` route in keys/[id]/test uses "DE" as a cheap probe).
     const params = new URLSearchParams({
       color_id: String(colorId),
       guide_type: guideType,
       new_or_used: newOrUsed,
-      country_code: countryCode,
       currency_code: 'EUR',
       vat: 'Y',
     })
+    if (countryCode) params.set('country_code', countryCode)
     const url = `${BASE_URL}/items/${encodeURIComponent(itemType)}/${encodeURIComponent(itemNo)}/price?${params}`
 
     const response = await this.signedGet(url)

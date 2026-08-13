@@ -99,7 +99,7 @@ async function fetchPrice(
           INSERT INTO price_sales (part_id, date_ordered, unit_price, quantity,
             seller_country, buyer_country, new_or_used, fetched_at, created_at)
           VALUES (${part.id}, ${dateOrdered}, ${unitPrice}::decimal(10,4),
-            ${sale.quantity}, ${sale.seller_country_code || "DE"},
+            ${sale.quantity}, ${sale.seller_country_code || "XX"},
             ${sale.buyer_country_code || null}, ${newOrUsed}, ${today}, NOW())
           ON CONFLICT DO NOTHING
         `;
@@ -127,12 +127,12 @@ async function fetchPrice(
         await prisma.priceDaily.upsert({
           where: {
             partId_fetchDate_newOrUsed_sellerCountry: {
-              partId: part.id, fetchDate, newOrUsed, sellerCountry: "DE",
+              partId: part.id, fetchDate, newOrUsed, sellerCountry: "XX",
             },
           },
           update: { minPrice, maxPrice, avgPrice, qtyAvgPrice, unitQuantity: prices.length, totalQuantity: totalQty },
           create: {
-            partId: part.id, fetchDate, newOrUsed, sellerCountry: "DE",
+            partId: part.id, fetchDate, newOrUsed, sellerCountry: "XX",
             currencyCode: "EUR", minPrice, maxPrice, avgPrice, qtyAvgPrice,
             unitQuantity: prices.length, totalQuantity: totalQty,
           },
@@ -154,7 +154,7 @@ async function fetchPrice(
     let stockCount = 0;
     try {
       const stockResponse = await client.getPriceGuide(
-        part.partNo, part.itemType, part.colorId, newOrUsed, "DE", "stock"
+        part.partNo, part.itemType, part.colorId, newOrUsed, "stock"
       );
       const stockData = stockResponse.data;
 
@@ -167,7 +167,8 @@ async function fetchPrice(
         for (const offer of stockData.price_detail) {
           await prisma.$executeRaw`
             INSERT INTO price_stock (part_id, unit_price, quantity, seller_country, new_or_used, fetched_at, created_at)
-            VALUES (${part.id}, ${parseFloat(offer.unit_price)}::decimal(10,4), ${offer.quantity}, 'DE', ${newOrUsed}, ${today}, NOW())
+            VALUES (${part.id}, ${parseFloat(offer.unit_price)}::decimal(10,4), ${offer.quantity},
+              ${offer.seller_country_code || 'XX'}, ${newOrUsed}, ${today}, NOW())
             ON CONFLICT DO NOTHING
           `;
         }

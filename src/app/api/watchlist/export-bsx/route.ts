@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getShippingCountries } from "@/lib/user-settings";
+import { getCountryFilters } from "@/lib/user-settings";
 import { evaluateFormula, findMatchingRule, type PricingRule } from "@/lib/pricing-engine";
 
 export const dynamic = "force-dynamic";
@@ -23,20 +23,31 @@ export async function GET() {
     try { pricingRules = JSON.parse(user.pricingFormulas); } catch { /* ignore */ }
   }
 
-  const countries = await getShippingCountries(userId);
+  const { shippingCountries, sellerCountries } = await getCountryFilters(userId);
   const sixMonthsAgo = new Date();
   sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
 
-  const cf = countries ? "AND s.buyer_country = ANY($3)" : "";
   const params: unknown[] = [userId, sixMonthsAgo];
-  if (countries) params.push(countries);
+  let p = 3;
+  let soldCf = "";
+  if (shippingCountries) { soldCf += ` AND s.buyer_country = ANY($${p++})`; params.push(shippingCountries); }
+  if (sellerCountries)   { soldCf += ` AND s.seller_country = ANY($${p++})`; params.push(sellerCountries); }
+  let stockCf = "";
+  let stockCfOuter = "";
+  if (sellerCountries) {
+    const idx = p++;
+    stockCf = ` AND seller_country = ANY($${idx})`;
+    stockCfOuter = ` AND s.seller_country = ANY($${idx})`;
+    params.push(sellerCountries);
+  }
 
   // Get all watchlist items with price data for formula evaluation
   const items = await prisma.$queryRawUnsafe<Array<{
     part_no: string; color_id: number; item_type: string; part_name: string | null; sale_rate: number; price_locked: boolean;
     color_name: string | null; category_id: number | null; category_name: string | null;
     new_or_used: string; my_price: number; my_quantity: number; my_cost: number | null;
-    bl_inventory_id: number | null; description: string | null;
+    bl_inventory_id: number | null; description: string | null; remarks: string | null;
+    bulk: number | null; bl_date_added: Date | null;
     sold6m_median: number | null; sold6m_avg: number | null;
     stock_median: number | null; stock_avg: number | null;
     stock_min: number | null; stock_max: number | null;
@@ -49,6 +60,7 @@ export async function GET() {
       SELECT DISTINCT ON (part_id, new_or_used) part_id, new_or_used, fetched_at
       FROM price_stock
       WHERE (part_id, new_or_used) IN (SELECT part_id, new_or_used FROM user_lots)
+        ${stockCf}
       ORDER BY part_id, new_or_used, fetched_at DESC
     ),
     stock_stats AS (
@@ -60,6 +72,7 @@ export async function GET() {
       FROM price_stock s
       JOIN latest_stock ls
         ON ls.part_id = s.part_id AND ls.new_or_used = s.new_or_used AND ls.fetched_at = s.fetched_at
+        ${stockCfOuter}
       GROUP BY s.part_id, s.new_or_used
     ),
     sold_stats AS (
@@ -68,7 +81,7 @@ export async function GET() {
         (SUM(s.unit_price * s.quantity) / NULLIF(SUM(s.quantity), 0))::float as sold6m_avg
       FROM price_sales s
       WHERE (s.part_id, s.new_or_used) IN (SELECT part_id, new_or_used FROM user_lots)
-        AND s.date_ordered >= $2 ${cf}
+        AND s.date_ordered >= $2 ${soldCf}
       GROUP BY s.part_id, s.new_or_used
     )
     SELECT p.part_no, p.color_id, p.item_type, p.part_name, p.color_name,
@@ -76,7 +89,8 @@ export async function GET() {
       COALESCE(w.my_price, 0)::float AS my_price,
       COALESCE(w.my_quantity, 0)::int AS my_quantity,
       w.my_cost::float AS my_cost,
-      w.bl_inventory_id, w.description, w.sale_rate, w.price_locked,
+      w.bl_inventory_id, w.description, w.remarks, w.bulk, w.bl_date_added,
+      w.sale_rate, w.price_locked,
       sold_stats.sold6m_median, sold_stats.sold6m_avg,
       stock_stats.stock_median, stock_stats.stock_avg,
       stock_stats.stock_min, stock_stats.stock_max,
@@ -86,7 +100,7 @@ export async function GET() {
     JOIN parts p ON p.id = w.part_id
     LEFT JOIN sold_stats ON sold_stats.part_id = p.id AND sold_stats.new_or_used = w.new_or_used
     LEFT JOIN stock_stats ON stock_stats.part_id = p.id AND stock_stats.new_or_used = w.new_or_used
-    WHERE w.user_id = $1`,
+    WHERE w.user_id = $1 AND w.bl_inventory_id IS NOT NULL`,
     ...params
   );
 
@@ -144,8 +158,22 @@ export async function GET() {
     const saleRate = item.sale_rate || 0;
     xml += `   <Price>${basePrice.toFixed(3)}</Price>\n`;
     xml += `   <Condition>${item.new_or_used}</Condition>\n`;
+    // Cost is per-unit; DB stores lot total → divide by qty
+    if (item.my_cost != null && item.my_cost > 0 && item.my_quantity > 0) {
+      const costPerUnit = item.my_cost / item.my_quantity;
+      xml += `   <Cost>${costPerUnit.toFixed(3)}</Cost>\n`;
+    }
+    // Remarks = private BL "Remarks" field (Lagerplatz, z.B. TA039) — NEVER the public description!
+    if (item.remarks) xml += `   <Remarks>${esc(item.remarks)}</Remarks>\n`;
+    // Comments = public BL "Description" — this is what buyers see
+    if (item.description) xml += `   <Comments>${esc(item.description)}</Comments>\n`;
     if (saleRate > 0) xml += `   <Sale>${saleRate}</Sale>\n`;
-    if (item.description) xml += `   <Remarks>${esc(item.description)}</Remarks>\n`;
+    if (item.bulk && item.bulk > 1) xml += `   <Bulk>${item.bulk}</Bulk>\n`;
+    // LotID = BL inventory_id — BrickStore matches by this on re-upload to avoid overwriting existing lots
+    if (item.bl_inventory_id) xml += `   <LotID>${item.bl_inventory_id}</LotID>\n`;
+    if (item.bl_date_added) {
+      xml += `   <DateAdded>${item.bl_date_added.toISOString().replace(/\.\d{3}Z$/, "Z")}</DateAdded>\n`;
+    }
     xml += '  </Item>\n';
   }
 

@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { importBsxDirectory } from "@/lib/bsx-orders";
+import { importBsxSource } from "@/lib/bsx-orders";
+import { loadUserBsxSource } from "@/lib/bsx-source";
 
 export const dynamic = "force-dynamic";
 
@@ -12,18 +13,17 @@ export async function POST() {
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const userId = parseInt(session.user.id);
 
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { bsxOrdersDir: true, isAdmin: true },
-  });
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { isAdmin: true } });
   if (!user?.isAdmin) return NextResponse.json({ error: "Nur Admin" }, { status: 403 });
-  if (!user?.bsxOrdersDir) {
-    return NextResponse.json({ error: "Kein BSX-Ordner konfiguriert" }, { status: 400 });
+
+  const source = await loadUserBsxSource(userId);
+  if (!source) {
+    return NextResponse.json({ error: "Keine BSX-Quelle konfiguriert" }, { status: 400 });
   }
 
   const t0 = Date.now();
   try {
-    const result = await importBsxDirectory(user.bsxOrdersDir, userId);
+    const result = await importBsxSource(source, userId);
     return NextResponse.json({
       ok: true,
       durationMs: Date.now() - t0,

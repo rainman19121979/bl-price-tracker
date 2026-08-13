@@ -335,3 +335,42 @@ export const PRICING_VARIABLES = [
 ] as const
 
 export const PRICING_FUNCTIONS = ['min', 'max', 'round', 'avg', 'abs'] as const
+
+// Human-readable descriptions for the UI
+export const PRICING_VAR_DOCS: Record<string, string> = {
+  sold7dMedian: 'Median der Verkaufspreise letzte 7 Tage (robust gegen Ausreißer)',
+  sold30dMedian: 'Median der Verkaufspreise letzte 30 Tage',
+  sold60dMedian: 'Median der Verkaufspreise letzte 60 Tage',
+  sold90dMedian: 'Median der Verkaufspreise letzte 90 Tage',
+  sold6mMedian: 'Median der Verkaufspreise letzte 6 Monate',
+  sold7dAvg: 'Ungewichteter Durchschnitt Verkaufspreis 7 Tage',
+  sold30dAvg: 'Ungewichteter Durchschnitt Verkaufspreis 30 Tage',
+  sold60dAvg: 'Ungewichteter Durchschnitt Verkaufspreis 60 Tage',
+  sold90dAvg: 'Ungewichteter Durchschnitt Verkaufspreis 90 Tage',
+  sold6mAvg: 'Ungewichteter Durchschnitt Verkaufspreis 6 Monate',
+  sold6mMin: 'Niedrigster Verkaufspreis in den letzten 6 Monaten',
+  sold6mMax: 'Höchster Verkaufspreis in den letzten 6 Monaten',
+  sold30dCount: 'Anzahl Verkaufs-Transaktionen letzte 30 Tage',
+  sold90dCount: 'Anzahl Verkaufs-Transaktionen letzte 90 Tage',
+  sold6mCount: 'Anzahl Verkaufs-Transaktionen letzte 6 Monate',
+  sold30dQty: 'Summe verkaufter Stückzahl letzte 30 Tage',
+  sold90dQty: 'Summe verkaufter Stückzahl letzte 90 Tage',
+  sold6mQty: 'Summe verkaufter Stückzahl letzte 6 Monate',
+  stockMedian: 'Median der aktuellen Angebotspreise (Marktpreis)',
+  stockAvg: 'Ungewichteter Durchschnitt aktueller Angebote',
+  stockMin: 'Günstigstes aktuelles Angebot',
+  stockMax: 'Höchstes aktuelles Angebot',
+  stockCount: 'Anzahl aktueller Angebote am Markt',
+  stockQty: 'Gesamte am Markt angebotene Stückzahl',
+  myPrice: 'Dein aktueller Verkaufspreis (aus BL/BSX)',
+  myQty: 'Deine Bestandsmenge',
+  myCost: 'Dein Einkaufspreis pro Stück (myCost/myQty aus BL)',
+}
+
+export const PRICING_FUNC_DOCS: Record<string, string> = {
+  min: 'Kleinster Wert: min(a, b, c) → gibt den niedrigsten zurück',
+  max: 'Größter Wert: max(a, b, c) → gibt den höchsten zurück',
+  round: 'Runden: round(preis, 2) → auf 2 Nachkommastellen',
+  avg: 'Durchschnitt: avg(a, b, c) → arithmetisches Mittel',
+  abs: 'Absolutwert: abs(x) → macht negative Zahlen positiv',
+}

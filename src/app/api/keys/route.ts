@@ -64,6 +64,10 @@ export async function POST(request: NextRequest) {
   const consumerSecretEnc = encrypt(consumerSecret);
   const tokenSecretEnc = encrypt(tokenSecret);
 
+  // Seed BrickSync as an external caller by default (5-min poll → ~288 calls/day).
+  // Users can edit or remove it in the UI. This matches the common BrickSync setup.
+  const defaultExternalCalls = JSON.stringify([{ name: "BrickSync", interval: 300 }]);
+
   const apiKey = await prisma.userApiKey.create({
     data: {
       userId: parseInt(session.user.id),
@@ -71,15 +75,17 @@ export async function POST(request: NextRequest) {
       consumerSecretEnc,
       tokenValue,
       tokenSecretEnc,
+      externalCalls: defaultExternalCalls,
     },
     select: {
       id: true,
       consumerKey: true,
       dailyLimit: true,
+      externalCalls: true,
       isValid: true,
       createdAt: true,
     },
   });
 
-  return NextResponse.json({ key: { ...apiKey, requestsToday: 0, externalCalls: null } }, { status: 201 });
+  return NextResponse.json({ key: { ...apiKey, requestsToday: 0 } }, { status: 201 });
 }
