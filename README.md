@@ -1,5 +1,7 @@
 # BrickLink Price Tracker
 
+> **Privates Hobby-Projekt, per Vibe-Coding mit KI-Unterstützung entstanden.** Steht in keiner Verbindung zur **LEGO Group**, **BrickLink Limited**, **BrickOwl LLC** oder **BrickSync**. LEGO®, BrickLink® und BrickOwl® sind eingetragene Marken der jeweiligen Rechteinhaber, die dieses Projekt weder unterstützen noch autorisieren. Nutzung auf eigene Verantwortung — siehe [NOTICE.md](./NOTICE.md).
+
 Ein selbstgehostetes Web-Tool, das deinem BrickLink-Store hilft, **faire und wettbewerbsfähige Preise** zu setzen. Es holt sich täglich echte Marktdaten von BrickLink (was aktuell angeboten wird und was tatsächlich verkauft wurde) und rechnet dir daraus Preisempfehlungen für jedes Teil in deinem Lager aus — nach Regeln, die du selbst festlegst.
 
 Gebaut für kleine bis mittlere LEGO-Händler, die **datenbasiert** verkaufen wollen, ohne stundenlang manuell Preise zu recherchieren.
@@ -172,6 +174,31 @@ Holt einmal täglich dein BrickLink-Inventar. Neue Lots werden ergänzt, verschw
 Das war's — der Crawler läuft ab jetzt im Hintergrund. Preise landen nach und nach in `/watchlist`.
 
 ![Detail-Ansicht eines Teils mit Preisverlauf](docs/screenshots/02-parts-detail.png)
+
+### Was dich beim ersten Mal erwartet: **Geduld**
+
+Wenn du deinen Store das erste Mal verbindest, ist die Watchlist erst mal **leer bei den Preisdaten**. Der Crawler muss für jedes Lot zweimal die BL-API anrufen (einmal für Sold-Historie, einmal für aktuelle Angebote) — und das BrickLink-API-Limit ist **hart bei ~1000 Aufrufen pro Tag** (Standard).
+
+Realistische Beispiele:
+
+| Store-Größe | API-Aufrufe nötig | Bei 1000/Tag Limit | Bei 5000/Tag Limit |
+|---|---|---|---|
+| 500 Lots | 1.000 | ~1 Tag | ~1 Stunde |
+| 2.000 Lots | 4.000 | ~4 Tage | ~1 Tag |
+| 5.000 Lots | 10.000 | ~10 Tage | ~2 Tage |
+| 10.000 Lots | 20.000 | ~3 Wochen | ~4 Tage |
+
+Wenn du zusätzlich BrickSync laufen hast, gehen davon nochmal ~300 Aufrufe pro Tag ab (5-Min-Poll). Das Dashboard zeigt dir live die ETA an.
+
+**Was du in dieser Anlaufphase sehen wirst:**
+- Watchlist: Teile werden nach und nach farbig (grün = frische Preise, grau = noch nicht gecrawlt)
+- Preisempfehlungen erscheinen sobald das jeweilige Lot vollständig gecrawlt ist
+- Der Crawler priorisiert intelligent: neue Teile zuerst, dann die ältesten Preisdaten
+
+**Tipps um es schneller zu machen:**
+- Bei BL beantragen dass dein Tageslimit erhöht wird (5000 statt 1000 ist üblich für aktive Händler) — geht formlos über [BL-Contact](https://www.bricklink.com/messageMe.asp?u=API)
+- Oder: nicht alles gleichzeitig — Auto-Sync bleibt so wie's ist, aber die Empfehlungspreise sind eben erst nach ein paar Wochen komplett
+- Sobald einmal alles da ist, hält der Crawler im "Wartungs-Modus" alle Preise alle 6 Monate frisch (das ist entspannt, da reichen die 1000/Tag locker)
 
 ---
 
@@ -425,4 +452,11 @@ Issues und Pull Requests willkommen. Für größere Änderungen bitte vorher ein
 
 ## Lizenz
 
-MIT — siehe [LICENSE](./LICENSE)
+**AGPL v3** — siehe [LICENSE](./LICENSE) für den vollen Text.
+
+Kurz zusammengefasst:
+- Du darfst den Code **frei nutzen, ändern, weitergeben** — auch für kommerzielle Zwecke
+- Wenn du eine veränderte Version **als Web-Service anbietest** (auch für Kunden gegen Geld), musst du deine Änderungen **auch als AGPL open-source zurückgeben**
+- Damit wird verhindert, dass jemand das Projekt forkt, hinter verschlossenen Türen erweitert und als proprietäres SaaS-Produkt verkauft — die Community bekommt Verbesserungen zurück
+
+Für Contributions, Bug-Fixes und PRs gilt: mit dem Einreichen stimmst du zu, dass dein Beitrag unter AGPL v3 gestellt wird.

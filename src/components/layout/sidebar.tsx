@@ -90,6 +90,12 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           <LogOut size={20} className="shrink-0" />
           {!collapsed && <span>Abmelden</span>}
         </button>
+        {!collapsed && (
+          <p className="mt-2 px-2 text-[10px] leading-tight text-gray-400">
+            Hobby-Projekt · nicht verbunden mit LEGO Group / BrickLink /
+            BrickOwl / BrickSync
+          </p>
+        )}
       </div>
     </aside>
   );
