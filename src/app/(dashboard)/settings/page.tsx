@@ -8,9 +8,15 @@ import { SellerCountriesSection } from "@/components/settings/seller-countries-s
 import { PricingFormulasSection } from "@/components/settings/pricing-formulas-section";
 import { ApiTokensSection } from "@/components/settings/api-tokens-section";
 import { BsxImportSection, type BsxSourceState } from "@/components/settings/bsx-import-section";
+import { AdminSection } from "@/components/settings/admin-section";
+import { useSession } from "next-auth/react";
 import type { PricingRule } from "@/lib/pricing-engine";
 
 export default function SettingsPage() {
+  const { data: session } = useSession();
+  const isAdmin = session?.user?.isAdmin ?? false;
+  const currentUserId = session?.user?.id ? parseInt(session.user.id) : 0;
+
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [keysLoading, setKeysLoading] = useState(true);
 
@@ -352,6 +358,10 @@ export default function SettingsPage() {
           onError={setError}
           onSuccess={setSuccess}
         />
+      )}
+
+      {isAdmin && currentUserId > 0 && (
+        <AdminSection currentUserId={currentUserId} onError={setError} onSuccess={setSuccess} />
       )}
 
     </div>
