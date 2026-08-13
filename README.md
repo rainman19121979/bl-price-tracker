@@ -177,28 +177,29 @@ Das war's — der Crawler läuft ab jetzt im Hintergrund. Preise landen nach und
 
 ### Was dich beim ersten Mal erwartet: **Geduld**
 
-Wenn du deinen Store das erste Mal verbindest, ist die Watchlist erst mal **leer bei den Preisdaten**. Der Crawler muss für jedes Lot zweimal die BL-API anrufen (einmal für Sold-Historie, einmal für aktuelle Angebote) — und das BrickLink-API-Limit ist **hart bei ~1000 Aufrufen pro Tag** (Standard).
+Wenn du deinen Store das erste Mal verbindest, ist die Watchlist erst mal **leer bei den Preisdaten**. Der Crawler muss für jedes Lot zweimal die BL-API anrufen (einmal für Sold-Historie, einmal für aktuelle Angebote).
 
-Realistische Beispiele:
+Wie viele Aufrufe pro Tag möglich sind, entscheidet **dein persönliches BrickLink-API-Kontingent**. BrickLink vergibt beim Anlegen des API-Keys ein Standardlimit von meistens **~1000 Aufrufen pro Tag**. Für aktive Händler stellt BL das auf Anfrage höher (5.000, 10.000 oder mehr) — formlos bei [BL-Support](https://www.bricklink.com/messageMe.asp?u=API) anfragen. Sobald BL dir mehr genehmigt, trägst du den neuen Wert einfach unter Einstellungen → API Keys → Tageslimit ein und die App paced sich dann höher.
 
-| Store-Größe | API-Aufrufe nötig | Bei 1000/Tag Limit | Bei 5000/Tag Limit |
-|---|---|---|---|
-| 500 Lots | 1.000 | ~1 Tag | ~1 Stunde |
-| 2.000 Lots | 4.000 | ~4 Tage | ~1 Tag |
-| 5.000 Lots | 10.000 | ~10 Tage | ~2 Tage |
-| 10.000 Lots | 20.000 | ~3 Wochen | ~4 Tage |
+Realistische Beispiele — Dauer bis alle Lots einmal gecrawlt sind:
 
-Wenn du zusätzlich BrickSync laufen hast, gehen davon nochmal ~300 Aufrufe pro Tag ab (5-Min-Poll). Das Dashboard zeigt dir live die ETA an.
+| Store-Größe | API-Aufrufe nötig | 1000/Tag Kontingent | 5000/Tag Kontingent | 20.000/Tag Kontingent |
+|---|---|---|---|---|
+| 500 Lots | 1.000 | ~1 Tag | wenige Stunden | Minuten |
+| 2.000 Lots | 4.000 | ~4 Tage | <1 Tag | <1 Stunde |
+| 5.000 Lots | 10.000 | ~10 Tage | ~2 Tage | wenige Stunden |
+| 10.000 Lots | 20.000 | ~3 Wochen | ~4 Tage | ~1 Tag |
+
+Wenn du zusätzlich BrickSync laufen hast, gehen davon nochmal ~300 Aufrufe pro Tag ab (5-Min-Poll). Das Dashboard zeigt dir live die ETA basierend auf deinem tatsächlichen Kontingent an.
 
 **Was du in dieser Anlaufphase sehen wirst:**
 - Watchlist: Teile werden nach und nach farbig (grün = frische Preise, grau = noch nicht gecrawlt)
 - Preisempfehlungen erscheinen sobald das jeweilige Lot vollständig gecrawlt ist
 - Der Crawler priorisiert intelligent: neue Teile zuerst, dann die ältesten Preisdaten
 
-**Tipps um es schneller zu machen:**
-- Bei BL beantragen dass dein Tageslimit erhöht wird (5000 statt 1000 ist üblich für aktive Händler) — geht formlos über [BL-Contact](https://www.bricklink.com/messageMe.asp?u=API)
-- Oder: nicht alles gleichzeitig — Auto-Sync bleibt so wie's ist, aber die Empfehlungspreise sind eben erst nach ein paar Wochen komplett
-- Sobald einmal alles da ist, hält der Crawler im "Wartungs-Modus" alle Preise alle 6 Monate frisch (das ist entspannt, da reichen die 1000/Tag locker)
+**Empfehlungen um es schneller zu machen:**
+- Vor der Installation bei BL das Tageslimit erhöhen lassen — spart die längste Wartezeit
+- Der 6-Monats-Default (`Datenaktualität`) ist bewusst gewählt: sobald einmal alles da ist, reichen selbst 1000/Tag für den Wartungsmodus locker aus
 
 ---
 
