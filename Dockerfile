@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1.7
 # Multi-stage build for the Next.js app + workers.
 # One image, three roles — CMD selects the process (web / crawler / scheduler).
 
