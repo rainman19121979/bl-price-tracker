@@ -223,7 +223,7 @@ Das Dashboard rechnet live: **Crawler-Verbrauch + Extern-Schätzung + Rest** = d
 5. **Alles im Shop-Bestand markieren** (Strg+A)
 6. Menü **Bearbeiten → "Werte von anderem Dokument kopieren…"**
 7. Im Dialog: die Export-Datei `pricetracker-empf-preise.bsx` auswählen → Weiter
-8. Im Feld-Dialog: bei **Preis** auf **"Kopieren"** klicken, alle anderen Felder auf **"Ignorieren"** lassen (Default) → **Abschließen**
+8. Im Feld-Dialog: bei **Preis** auf **"Kopieren"** klicken, für **alle anderen Felder** auf **"Ignorieren"** klicken (muss aktiv gesetzt werden — Vorauswahl ist anders!) → **Abschließen**
 9. BrickStore übernimmt nur die neuen Preise ins Shop-Bestand-Dokument, alles andere bleibt wie es war
 10. Prüfen ob es passt, dann wie gewohnt: **BrickLink → Store → Upload / Aktualisieren** — deine Preise sind live
 
