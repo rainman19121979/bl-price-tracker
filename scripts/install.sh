@@ -17,14 +17,15 @@
 
 set -euo pipefail
 
-# ─── Interaktivität sicherstellen ────────────────────────────────────────────
-# Bei `curl | sudo bash` ist STDIN vom Pipe belegt; alle interaktiven `read`
-# würden sofort EOF liefern und die Default-Antworten nehmen. Fix: STDIN von
-# /dev/tty neu einlesen (falls verfügbar). In echt non-interaktiven Umgebungen
-# (CI, cron) bleibt STDIN wie es ist und die Defaults greifen.
-if [ ! -t 0 ] && [ -r /dev/tty ]; then
-  exec < /dev/tty
-fi
+# ─── curl-|-bash sicher machen ───────────────────────────────────────────────
+# Der komplette Installer läuft in main() unten. Grund: bei `curl … | bash`
+# liest bash die Skript-Zeilen vom STDIN-Pipe. Würde der Skript-Code direkt
+# `exec < /dev/tty` machen (nötig für interaktive Prompts), wäre der Pipe zu
+# und bash würde den Rest des Skripts nicht mehr lesen. In einer Funktion
+# gewrappt wird alles zuerst geparst und erst nach dem letzten `main "$@"`
+# ausgeführt — dann sind wir sicher.
+
+main() {
 
 # ─── Konstanten ──────────────────────────────────────────────────────────────
 REPO_URL="https://github.com/rainman19121979/bl-price-tracker.git"
@@ -395,6 +396,12 @@ echo "  BrickLink Price Tracker — Installer"
 echo "  ==================================="
 echo ""
 
+# Interaktivität: bei curl|bash umleiten von /dev/tty (bash hat schon alles geparst,
+# weil wir in main() sind — jetzt darf STDIN gefahrlos wechseln).
+if [ ! -t 0 ] && [ -r /dev/tty ]; then
+  exec < /dev/tty
+fi
+
 require_root
 check_os
 install_base_tools     # muss vor check_ports (braucht ss) und install_docker (braucht curl) laufen
@@ -412,3 +419,7 @@ show_next_steps
 
 # Erfolg — Rollback-Trap deaktivieren
 trap - EXIT
+
+}  # ← main() Ende
+
+main "$@"
