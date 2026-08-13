@@ -181,32 +181,28 @@ Wenn du deinen Store das erste Mal verbindest, ist die Watchlist erst mal **leer
 
 Wie viele Aufrufe pro Tag möglich sind, gibt **dein BrickLink-API-Kontingent** vor. BrickLink limitiert **5.000 Aufrufe pro Tag pro BL-Account** (Stand 2026, kann sich ändern). Wichtig: **es zählt pro Account, nicht pro API-Consumer-Key** — mehrere Keys anzulegen bringt nichts, die teilen sich alle dieselben 5.000.
 
-Realistische Beispiele — Dauer bis alle Lots einmal gecrawlt sind:
+**Standard-Einstellung in dieser App: 1.000 Aufrufe/Tag** — konservativ gewählt, damit andere Tools (BrickSync, Inventar-Manager, Automations) nicht plötzlich ohne Kontingent dastehen. Damit sieht die Dauer für den Erst-Crawl so aus:
 
-| Store-Größe | API-Aufrufe nötig | Bei 5.000/Tag |
+| Store-Größe | API-Aufrufe nötig | Bei 1.000/Tag (Standard) |
 |---|---|---|
-| 500 Lots | 1.000 | wenige Stunden |
-| 2.000 Lots | 4.000 | ~1 Tag |
-| 5.000 Lots | 10.000 | ~2 Tage |
-| 10.000 Lots | 20.000 | ~4 Tage |
-| 20.000 Lots | 40.000 | ~8 Tage |
+| 500 Lots | 1.000 | ~1 Tag |
+| 2.000 Lots | 4.000 | ~4 Tage |
+| 5.000 Lots | 10.000 | ~10 Tage |
+| 10.000 Lots | 20.000 | ~3 Wochen |
+| 20.000 Lots | 40.000 | ~6 Wochen |
 
-> **Standard-Einstellung in dieser App:** 1.000/Tag als Sicherheitspuffer, damit andere Tools nicht plötzlich kein Kontingent mehr haben. Nach der Installation musst du das entsprechend hochsetzen (siehe unten).
+Wenn du weißt dass keine anderen Tools mit deinem BL-Account sprechen, kannst du die Zahl unter **Einstellungen → API Keys → Tageslimit** hochsetzen (bis maximal 5.000). Bei 4.500/Tag halbieren/vierteln sich die Zeiten entsprechend.
 
-**⚠ WICHTIG: Andere Tools zählen mit in dieselbe API-Quote!**
+**⚠ Andere Tools zählen mit — trag sie in der App ein!**
 
-Alle Tools die deinen BL-Account benutzen (**BrickSync**, externe Inventar-Manager, N8N-Automationen usw.) fressen aus demselben 5.000er-Topf — egal ob sie eigene Consumer-Keys haben oder nicht. Realistischer Alltag:
+Damit der Crawler nicht mehr verbraucht als er darf, kannst du **grobe Schätzwerte für externe Tools** hinterlegen: **Einstellungen → API Keys → Externe Aufrufe**. Für **BrickSync ist bereits ein Standardwert eingetragen** (~288 Aufrufe/Tag bei 5-Min-Poll) — der wird automatisch vom Kontingent abgezogen. Du kannst weitere Tools ergänzen (Name + Intervall in Sekunden).
 
-- BrickSync mit 5-Min-Poll: ~288 Aufrufe/Tag
-- Dein externer Inventar-Manager: je nach Konfiguration
-- N8N-/Automation-Flows: variabel
+Realistische Werte zum Nachtragen:
+- BrickSync 5-Min-Poll: 300s → ~288/Tag (schon eingetragen)
+- Externer Inventar-Manager alle 10 Min: 600s → ~144/Tag
+- N8N-/Automation-Flow: nach eigener Frequenz
 
-Das musst du bei **Einstellungen → API Keys → Tageslimit** berücksichtigen:
-- Trage nur das **Kontingent ein, das du für den Crawler übrig lässt** — nicht die vollen 5.000
-- Beispiel: BrickSync verbraucht 300/Tag, andere Tools 200/Tag → trage 4.500 als Limit für den Tracker ein
-- Zur Sicherheit lieber etwas Puffer lassen (z.B. 4.000 statt 4.500) — falls mal ein externes Tool mehr braucht als erwartet, kollidiert nichts
-
-Im Dashboard siehst du live: Crawler-Verbrauch + geschätzter Extern-Verbrauch + Rest. Der Crawler paced sich automatisch runter wenn er das eingestellte Limit erreicht — es passiert also nichts Schlimmes, aber wenn du zu wenig einträgst wird der Erst-Crawl länger.
+Das Dashboard rechnet live: **Crawler-Verbrauch + Extern-Schätzung + Rest** = deine echte Auslastung. Wird das eingestellte Limit erreicht, paced sich der Crawler von selbst runter — nichts geht kaputt, der Erst-Crawl dauert dann eben länger.
 
 **Was du in dieser Anlaufphase sehen wirst:**
 - Watchlist: Teile werden nach und nach farbig (grün = frische Preise, grau = noch nicht gecrawlt)
