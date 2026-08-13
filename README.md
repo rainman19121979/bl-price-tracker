@@ -214,16 +214,22 @@ Das Dashboard rechnet live: **Crawler-Verbrauch + Extern-Schätzung + Rest** = d
 
 ## Preisempfehlungen in deinen Store übertragen
 
-**Nichts passiert automatisch** — du behältst immer die Kontrolle:
+**Nichts passiert automatisch** — du behältst immer die Kontrolle. Der Workflow über BrickStore geht so:
 
-1. Öffne `/watchlist` → oben rechts **"BSX-Export"** herunterladen
-2. Öffne diese Datei in BrickStore (Datei → Öffnen)
-3. Prüfe die neuen Preise, ändere manuell falls nötig
-4. In BrickStore: **BrickLink → Store → Upload** — BrickStore schreibt die Änderungen zurück an deinen Shop
+1. **In dieser App:** `/watchlist` → oben rechts **"BSX-Export"** herunterladen → Datei `pricetracker-empf-preise.bsx` landet in deinen Downloads
+2. **In BrickStore öffnen:** Datei → Öffnen → die heruntergeladene BSX-Datei
+3. **Deinen aktuellen Shop-Bestand daneben öffnen:** in BrickStore auf den Store-Tab → Store-Bestand herunterladen (falls noch nicht offen)
+4. **In das Shop-Bestand-Fenster wechseln** (nicht der Export!) — das ist wichtig, denn Ziel ist es dorthin die Preise zu kopieren
+5. **Alles im Shop-Bestand markieren** (Strg+A)
+6. Menü **Bearbeiten → "Werte von anderem Dokument kopieren…"**
+7. Im Dialog: die Export-Datei `pricetracker-empf-preise.bsx` auswählen → Weiter
+8. Im Feld-Dialog: bei **Preis** auf **"Kopieren"** klicken, alle anderen Felder auf **"Ignorieren"** lassen (Default) → **Abschließen**
+9. BrickStore übernimmt nur die neuen Preise ins Shop-Bestand-Dokument, alles andere bleibt wie es war
+10. Prüfen ob es passt, dann wie gewohnt: **BrickLink → Store → Upload / Aktualisieren** — deine Preise sind live
 
-Die BSX-Datei enthält dein Inventar **exakt so wie es aktuell in deinem Store ist** (Lagerplatz, öffentlicher Kommentar, Einkaufspreis, Lot-ID, alles) — nur mit dem neuen Empfehlungspreis. BrickStore matcht per Lot-ID und ändert nichts anderes als den Preis.
+**Warum dieser Umweg?** Der Export enthält zwar alle Felder für einen theoretischen 1:1-Round-trip, aber der sicherste Weg ist: **Shop-Bestand bleibt das Original-Dokument** und wir kopieren nur die Preis-Spalte rein. So kann garantiert nichts anderes verändert werden — nicht mal wenn im Export ein Feld fehlt oder abweicht.
 
-> **Sicherheitsnetz:** Nur Lots mit BrickLink-Inventory-ID (also welche die per Sync kamen) werden exportiert. Manuell hinzugefügte Lots ohne ID bleiben draußen, weil sie beim Upload Chaos anrichten könnten.
+> **Sicherheitsnetz im Export:** Nur Lots mit BrickLink-Inventory-ID (also welche die per Sync kamen) werden exportiert. Manuell hinzugefügte Lots ohne ID bleiben draußen, weil sie beim Kopieren keinen Match-Partner im Shop-Bestand hätten.
 
 ---
 
