@@ -17,6 +17,15 @@
 
 set -euo pipefail
 
+# ─── Interaktivität sicherstellen ────────────────────────────────────────────
+# Bei `curl | sudo bash` ist STDIN vom Pipe belegt; alle interaktiven `read`
+# würden sofort EOF liefern und die Default-Antworten nehmen. Fix: STDIN von
+# /dev/tty neu einlesen (falls verfügbar). In echt non-interaktiven Umgebungen
+# (CI, cron) bleibt STDIN wie es ist und die Defaults greifen.
+if [ ! -t 0 ] && [ -r /dev/tty ]; then
+  exec < /dev/tty
+fi
+
 # ─── Konstanten ──────────────────────────────────────────────────────────────
 REPO_URL="https://github.com/rainman19121979/bl-price-tracker.git"
 INSTALL_DIR="/opt/bl-price-tracker"
