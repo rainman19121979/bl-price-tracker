@@ -8,7 +8,8 @@ Gebaut für kleine bis mittlere LEGO-Händler, die **datenbasiert** verkaufen wo
 
 **Nichts wird zurück an BrickLink oder BrickOwl geschrieben.** Das Tool liest nur — Änderungen exportierst du als BSX, prüfst sie in BrickStore und lädst sie manuell hoch. So kann nichts kaputt gehen.
 
-![Watchlist mit Empfehlungspreisen](docs/screenshots/01-watchlist.png)
+![Watchlist mit Empfehlungspreisen](docs/01-watchlist.png)
+![Dashboard mit API-Budget und Fortschritts-KPIs](docs/07-dashboard.png)
 
 ---
 
@@ -150,6 +151,8 @@ Beispiel: du bist deutscher Händler und verkaufst nur nach DE, AT, CH.
 
 Kannst du jederzeit umstellen ohne neu zu crawlen — die Daten werden immer weltweit geholt und nur bei der Anzeige gefiltert.
 
+![Länderfilter für Verkäufer und Käufer](docs/04-settings-countries.png)
+
 **3. Preisformel definieren** (Einstellungen → Preisformeln → Regel)
 
 Ein einfacher Einstieg:
@@ -161,7 +164,7 @@ Bedeutet: nimm das Höhere von 90-Tage-Verkaufsmedian und aktuellem Marktmedian,
 
 Unter der Formel gibt's "Live-Vorschau" — die zeigt dir mit einem echten Teil aus deinem Lager, welchen Preis die Formel ausspucken würde vs. was du aktuell verlangst.
 
-![Preisformeln mit Live-Vorschau](docs/screenshots/03-settings-pricing.png)
+![Preisformeln mit Live-Vorschau](docs/03-settings-pricing.png)
 
 **4. Datenaktualität einstellen** (Einstellungen → Datenaktualität)
 
@@ -173,7 +176,8 @@ Holt einmal täglich dein BrickLink-Inventar. Neue Lots werden ergänzt, verschw
 
 Das war's — der Crawler läuft ab jetzt im Hintergrund. Preise landen nach und nach in `/watchlist`.
 
-![Detail-Ansicht eines Teils mit Preisverlauf](docs/screenshots/02-parts-detail.png)
+![Detail-Ansicht eines Teils — Preis-Vergleich + 12-Monats-Chart](docs/02-parts-detail-1.png)
+![Detail-Ansicht eines Teils — Angebote + Sales-Historie](docs/02-parts-detail-2.png)
 
 ### Was dich beim ersten Mal erwartet: **Geduld**
 
@@ -266,8 +270,7 @@ Nach `docker compose up -d --build` erscheint der Ordner als `/bsx-orders` im Co
 
 **Bare Metal:** einfach den lokalen Pfad in der UI eintragen. Für Netzwerkfreigaben entweder auf dem Host mounten (`mount -t cifs …`) und Mount-Pfad eintragen, oder direkt SMB in der UI benutzen.
 
-![BSX-Import mit SMB-Formular](docs/screenshots/05-settings-bsx-smb.png)
-![Deine Verkäufe: KPI und 12-Monats-Chart](docs/screenshots/06-sales.png)
+![BSX-Import mit SMB-Formular](docs/05-settings-bsx-smb.png)
 
 ---
 
@@ -443,6 +446,8 @@ Wichtigste Endpoints:
 | GET | `/api/external/sales` | Deine Verkäufe abrufen (paginiert, filterbar) |
 
 Jede Response enthält `apiUsage: {used, external, limit, remaining}` — dein aktuelles BrickLink-API-Budget.
+
+![API-Tokens verwalten mit Copy-Paste-Curl-Beispielen](docs/05-settings-api.png)
 
 **Volle Dokumentation mit Beispielen:** [API.md](./API.md)
 
