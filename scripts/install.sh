@@ -153,6 +153,35 @@ check_existing() {
   ok "Keine bestehende Installation."
 }
 
+# ─── Basis-Tools installieren ────────────────────────────────────────────────
+install_base_tools() {
+  step "Basis-Tools prüfen"
+  local missing=()
+  for cmd in curl git ca-certificates ss; do
+    # ss steckt in iproute2; ca-certificates ist ein Paket ohne CLI
+    case "$cmd" in
+      ca-certificates)
+        dpkg -s ca-certificates >/dev/null 2>&1 || missing+=("ca-certificates")
+        ;;
+      *)
+        command -v "$cmd" >/dev/null 2>&1 || missing+=("$cmd")
+        ;;
+    esac
+  done
+  # iproute2 wenn ss fehlt
+  if ! command -v ss >/dev/null 2>&1; then
+    missing=("${missing[@]/ss/iproute2}")
+  fi
+  if [ ${#missing[@]} -eq 0 ]; then
+    ok "curl, git, ca-certificates, iproute2 sind da."
+    return
+  fi
+  info "Fehlt: ${missing[*]} — installiere via apt..."
+  apt-get update -qq
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${missing[@]}"
+  ok "Basis-Tools installiert."
+}
+
 # ─── Docker Install ──────────────────────────────────────────────────────────
 install_docker() {
   step "Docker prüfen/installieren"
@@ -359,6 +388,7 @@ echo ""
 
 require_root
 check_os
+install_base_tools     # muss vor check_ports (braucht ss) und install_docker (braucht curl) laufen
 check_ram
 check_disk
 check_existing

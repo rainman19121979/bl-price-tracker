@@ -51,8 +51,11 @@ Bevor du loslegst:
 Auf einem frischen Ubuntu- oder Debian-Server (z.B. bei Netcup, Hetzner, Contabo):
 
 ```bash
+apt update && apt install -y curl
 curl -fsSL https://raw.githubusercontent.com/rainman19121979/bl-price-tracker/main/scripts/install.sh | sudo bash
 ```
+
+> Warum die erste Zeile? Minimal-Installationen von Ubuntu 24 bringen `curl` nicht mehr per Default mit. Der Installer selbst installiert danach `git`, `iproute2` etc. automatisch nach — nur `curl` musst du kurz vorher haben, damit du den Installer überhaupt herunterladen kannst.
 
 Der Installer macht alles automatisch:
 - Prüft OS, RAM, Platte, Port-Konflikte (bricht ab bei Problemen — nichts wird "einfach so überschrieben")
