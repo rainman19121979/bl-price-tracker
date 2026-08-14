@@ -316,7 +316,10 @@ setup_env() {
     # Setups haben Port 3000 eh nicht offen. Für strikte Loopback-Only:
     # WEB_PORT=127.0.0.1:3000 in .env setzen.
     grep -q "^WEB_PORT=" .env || echo "WEB_PORT=3000" >> .env
-    # NEXTAUTH_URL bleibt http://localhost:3000 (Default)
+    # NEXTAUTH_URL leer lassen — trustHost=true in auth.ts leitet die URL
+    # aus dem Request ab (LAN-IP, Tailscale-IP, localhost — alles OK ohne
+    # feste URL zu pinnen)
+    sed -i "s|^NEXTAUTH_URL=.*|NEXTAUTH_URL=|" .env
     ok "Web bindet an 0.0.0.0:3000 (via Tailscale, SSH-Tunnel oder LAN erreichbar)"
   fi
 

@@ -26,7 +26,10 @@ x-app-common: &app-common
     DATABASE_URL: postgresql://pricetracker:${DB_PASSWORD:?DB_PASSWORD not set}@db:5432/pricetracker
     REDIS_URL: redis://redis:6379
     NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:?NEXTAUTH_SECRET not set}
-    NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+    # Leer lassen → trustHost=true in auth.ts leitet die URL aus dem
+    # Request-Host ab (LAN-IP, Tailscale-IP, localhost, Domain — alles OK).
+    # Nur setzen wenn du eine feste Domain hast (z.B. via Caddy-Overlay).
+    NEXTAUTH_URL: ${NEXTAUTH_URL:-}
     ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY not set}
     NODE_ENV: production
   restart: unless-stopped
