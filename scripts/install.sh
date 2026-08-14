@@ -321,7 +321,14 @@ start_stack() {
   if [ "$MODE" = "caddy" ]; then
     compose_files+=("-f" "docker-compose.caddy.yml")
   fi
-  docker compose "${compose_files[@]}" up -d --build
+  # `--pull always` holt das aktuellste GHCR-Image; wenn das Image nicht
+  # verfügbar ist (Fork, GHCR down), fallback auf lokalen Build.
+  if ! docker compose "${compose_files[@]}" pull 2>/dev/null; then
+    warn "GHCR-Image nicht verfügbar oder nicht erreichbar — baue lokal (dauert 5-10 Min)"
+    docker compose "${compose_files[@]}" up -d --build
+  else
+    docker compose "${compose_files[@]}" up -d
+  fi
   STARTED_STACK=1
   ok "Stack läuft."
 
@@ -383,7 +390,7 @@ show_next_steps() {
   echo "    cd $INSTALL_DIR"
   echo "    docker compose logs -f web       # Logs live"
   echo "    docker compose ps                # Status"
-  echo "    git pull && docker compose up -d --build   # Update"
+  echo "    git pull && docker compose pull && docker compose up -d   # Update"
   echo ""
   echo "═══════════════════════════════════════════════════════════════════"
 }

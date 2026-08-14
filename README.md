@@ -374,7 +374,7 @@ docker compose logs -f web        # Logs live mitlesen
 docker compose logs -f crawler    # Crawler-Aktivität
 docker compose ps                 # Status aller Services
 docker compose down               # Alles stoppen
-docker compose up -d --build      # Nach Update neu bauen + starten
+docker compose pull && docker compose up -d   # Update auf neuste GHCR-Version
 ```
 
 Daten (Postgres, Redis) liegen in Docker-Volumes und überleben `down` und `up`.
@@ -382,11 +382,18 @@ Daten (Postgres, Redis) liegen in Docker-Volumes und überleben `down` und `up`.
 **Update ziehen:**
 
 ```bash
-git pull
-docker compose up -d --build
+cd /opt/bl-price-tracker
+git pull                          # Neue Compose-Datei & Migrations holen
+docker compose pull               # Neustes Image von ghcr.io ziehen (~30 Sek)
+docker compose up -d              # Container mit neuem Image starten
 ```
 
 Migrations werden beim Start automatisch angewendet.
+
+**Lokal bauen statt GHCR-Image nutzen** (nur für Devs / Forks):
+```bash
+docker compose up -d --build      # überschreibt das GHCR-Image mit lokalem Build
+```
 
 ---
 

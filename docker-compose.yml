@@ -15,7 +15,10 @@
 # is needed — enter host/share/user/password directly in the UI.
 
 x-app-common: &app-common
-  image: bl-price-tracker:local
+  # Standard: fertiges Image aus GHCR (~500 MB Pull, 30 Sek).
+  # Für lokale Entwicklung: `docker compose up -d --build` überschreibt mit
+  # lokalem Build. Für gepinnte Version: IMAGE=ghcr.io/…:v1.2.3 in .env.
+  image: ${IMAGE:-ghcr.io/rainman19121979/bl-price-tracker:latest}
   build:
     context: .
     dockerfile: Dockerfile
