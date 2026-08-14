@@ -48,12 +48,14 @@ Bevor du loslegst:
 
 ### One-Command-Install (empfohlen)
 
-Auf einem frischen Ubuntu- oder Debian-Server (z.B. bei Netcup, Hetzner, Contabo):
+Auf einem frischen Ubuntu- oder Debian-Server (z.B. bei Netcup, Hetzner, Contabo) — funktioniert genauso auf einem **Raspberry Pi 4/5** mit Raspberry Pi OS (Debian-basiert):
 
 ```bash
 apt update && apt install -y curl
 curl -fsSL https://raw.githubusercontent.com/rainman19121979/bl-price-tracker/main/scripts/install.sh | sudo bash
 ```
+
+Das Docker-Image ist für `linux/amd64` UND `linux/arm64` gebaut — Docker zieht automatisch das richtige für deine Hardware.
 
 > Warum die erste Zeile? Minimal-Installationen von Ubuntu 24 bringen `curl` nicht mehr per Default mit. Der Installer selbst installiert danach `git`, `iproute2` etc. automatisch nach — nur `curl` musst du kurz vorher haben, damit du den Installer überhaupt herunterladen kannst.
 
@@ -104,6 +106,29 @@ ssh -L 3000:localhost:3000 root@dein-vps
 ```
 
 **Alternative mit eigener Domain** — beim Installer statt Modus 1 einfach Modus 2 wählen. Er richtet dann Caddy mit ein und macht HTTPS via Let's-Encrypt automatisch. Braucht: Domain, DNS-A-Record auf VPS-IP, Ports 80/443 offen.
+
+### Auf einem Raspberry Pi (Home-Server)
+
+Läuft gut auf einem Pi im lokalen Netz — kein VPS, kein Tailscale nötig. Empfehlungen:
+
+**Hardware:**
+- **Raspberry Pi 5 (4 oder 8 GB RAM)** — ideal, alles läuft flott
+- **Raspberry Pi 4 mit mindestens 4 GB** — geht gut. Bei 2 GB wird's eng (Postgres + Redis + Next.js + zwei Worker)
+- **Pi 3 oder älter**: zu langsam, alte 32-bit-CPU, nicht empfohlen
+- **USB-SSD statt SD-Karte** stark empfohlen — Postgres macht viele Writes, SD-Karten sterben nach einigen Monaten. Selbst ein günstiger USB3-SSD-Stick ist 10× schneller und deutlich langlebiger
+
+**Installation** wie oben (der Installer erkennt ARM64 automatisch, das Multi-Arch-Docker-Image wird richtig gepullt). Beim Modus-Prompt "Localhost" wählen — im LAN brauchst du weder Tailscale noch HTTPS.
+
+**Feste IP im Router einrichten** — bei den meisten Consumer-Routern (Fritz!Box, Speedport, …): "Diesem Gerät immer dieselbe IP zuweisen". Dann bleibt die URL stabil.
+
+**Zugriff aus dem LAN:**
+- Über die feste Raspi-IP: `http://192.168.1.42:3000`
+- Oder wenn dein Netzwerk mDNS unterstützt: `http://raspberrypi.local:3000`
+
+**Sicherheit im LAN:**
+- Router-Firewall blockt eh alles Externe (NAT)
+- SSH-Zugang zum Pi: Key-Auth statt Passwort einrichten
+- Wenn Gäste ins WLAN kommen: nach Ersteinrichtung die Registrierung schließen (Admin-Panel), damit Fremde keine Accounts anlegen können
 
 ### Manuelle Installation (ohne install.sh)
 

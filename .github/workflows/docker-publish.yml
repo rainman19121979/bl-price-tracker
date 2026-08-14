@@ -20,6 +20,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # QEMU für ARM64-Emulation auf x86-Runner. Braucht's damit
+      # docker/build-push-action Multi-Platform-Images bauen kann.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
@@ -51,4 +58,8 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          platforms: linux/amd64
+          # amd64 = normale VPS, arm64 = Raspberry Pi 4/5 + Apple Silicon
+          # Build dauert dadurch ~2× länger (~5-10 Min), Image bleibt separat
+          # pro Plattform ~500 MB. Docker wählt beim Pull automatisch das
+          # passende für die Host-Architektur.
+          platforms: linux/amd64,linux/arm64
