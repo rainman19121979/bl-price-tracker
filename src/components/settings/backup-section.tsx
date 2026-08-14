@@ -108,6 +108,14 @@ export function BackupSection({ onError, onSuccess }: Props) {
         Nach dem Restore sind alle Sessions ungültig (User-IDs können sich geändert haben) — du wirst automatisch ausgeloggt.
       </p>
 
+      <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+        <strong>Wichtig — BrickLink-Nutzungsbedingungen:</strong> Diese Backup-Datei enthält Preis-,
+        Verkaufs- und Angebots-Daten die aus der BrickLink-API stammen. Laut BrickLink API Terms of Use
+        darfst du diese Daten <strong>nicht an Dritte weitergeben, veröffentlichen oder verkaufen</strong>.
+        Das Backup ist ausschließlich für deinen eigenen Wiederherstellungs-Zweck. Bewahre es sicher
+        auf (Passwortmanager, verschlüsselte Cloud).
+      </div>
+
       {/* Confirm-Dialog */}
       {showConfirm && pendingFile && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => !restoring && setShowConfirm(false)}>

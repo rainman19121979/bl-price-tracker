@@ -367,6 +367,17 @@ Wenn du das umsetzt, ist der VPS-Betrieb genauso sicher wie andere selbstgehoste
 
 ---
 
+## Backup & Restore
+
+Als **Admin** unter Einstellungen → "Backup & Restore":
+
+- **Backup herunterladen** — kompletter Datenbank-Dump (SQL) als Download. Enthält Watchlist, Preisformeln, verschlüsselte API-Keys, Marktdaten, deine Verkäufe. Der `ENCRYPTION_KEY` aus `.env` ist **nicht** dabei — sichere ihn separat, sonst sind die Keys nach dem Restore unlesbar.
+- **Restore hochladen** — SQL-Datei per Upload einspielen. Fragt nach Bestätigung (`ERSETZEN` tippen), ersetzt komplett die aktuelle DB, loggt dich danach automatisch aus.
+
+**Wichtig — BrickLink-Nutzungsbedingungen beachten:** Die Backup-Datei enthält Preis-, Verkaufs- und Angebots-Daten aus der BrickLink-API. Laut BrickLink API Terms of Use darfst du **diese Daten nicht an Dritte weitergeben, veröffentlichen oder verkaufen**. Das Backup ist ausschließlich für deinen eigenen Wiederherstellungs-Zweck. Wenn du das Tool jemandem anderen zur Nutzung überlässt, muss diese Person einen eigenen BrickLink-Account und eigene API-Zugangsdaten benutzen — geteilte Nutzung mit einem BL-Account ist nicht erlaubt. Siehe [NOTICE.md](./NOTICE.md).
+
+---
+
 ## Wartung
 
 ```bash

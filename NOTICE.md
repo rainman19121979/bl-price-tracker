@@ -39,6 +39,16 @@ This tool interacts with the BrickLink API using credentials supplied by the
 user. Users are responsible for ensuring their use complies with the
 BrickLink API Terms of Service (<https://www.bricklink.com/v3/api.page>).
 
+**Data usage restrictions (BrickLink API Terms of Use):** Data retrieved
+from the BrickLink API — including price history, current offers, inventory
+and sales — must not be distributed, disclosed, uploaded, or transferred to
+any third party. It is exclusively for personal use of the account holder
+whose API credentials fetched it. Do not share database backups produced
+by this tool, do not publish price data harvested via the tool, do not
+resell it as a price service. Providing third-party access to the tool
+without granting each user their own BrickLink account and API key would
+also violate the API TOS.
+
 The author accepts no liability for any losses, incorrect prices, banned
 accounts, or any other damages arising from use of this software. Use at
 your own risk.
@@ -65,6 +75,17 @@ autorisiert.
 Das Tool nutzt die BrickLink-API mit den Zugangsdaten des Anwenders. Nutzer
 sind selbst dafür verantwortlich, die Nutzungsbedingungen der BrickLink-API
 einzuhalten (<https://www.bricklink.com/v3/api.page>).
+
+**Datennutzungs-Einschränkungen (BrickLink API Terms of Use):** Daten die
+über die BrickLink-API abgerufen werden — inklusive Preishistorie, aktueller
+Angebote, Inventar und Verkäufe — dürfen **nicht an Dritte weitergegeben,
+veröffentlicht, hochgeladen oder verkauft** werden. Sie sind ausschließlich
+für den privaten Gebrauch des Account-Inhabers dessen API-Zugangsdaten sie
+abgerufen haben. Datenbank-Backups die dieses Tool erstellt niemals mit
+anderen teilen, Preisdaten nicht öffentlich stellen, keinen Preis-Service
+mit den Daten aufbauen. Wenn du das Tool anderen zur Nutzung anbietest,
+muss jeder Nutzer seinen eigenen BrickLink-Account + API-Key haben —
+sonst verstößt der Betrieb gegen die API-TOS.
 
 Der Autor übernimmt keinerlei Haftung für Verluste, falsche Preise, gesperrte
 Accounts oder sonstige Schäden, die durch die Nutzung dieser Software
