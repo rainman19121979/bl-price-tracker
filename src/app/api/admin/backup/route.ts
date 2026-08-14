@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { spawn } from "child_process";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 600;  // 10 Min für große DBs
+export const maxDuration = 600;
 export const runtime = "nodejs";
 
 /**
@@ -40,13 +40,56 @@ export async function GET() {
     env: { ...process.env, PGPASSWORD: password || "" },
   });
 
+  // Wichtig: wir dürfen erst NextResponse(stream, 200) zurückgeben, wenn wir
+  // wissen dass pg_dump wirklich Daten liefert. Sonst committed Next den
+  // 200-Header, pg_dump crasht danach (Version-Mismatch, ENOENT, Auth-Fail),
+  // controller.error() feuert — und der Browser sieht nur einen leeren
+  // Response (NS_ERROR_NET_EMPTY_RESPONSE) ohne jede Fehlermeldung.
+  //
+  // Deshalb: erst auf den ersten stdout-chunk warten. Kommt statt dessen
+  // ein close mit exit!=0, liefern wir ein sauberes JSON-500 mit stderr.
+  const stderrChunks: Buffer[] = [];
+  dump.stderr.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
+
+  const first = await new Promise<{ ok: true; chunk: Buffer } | { ok: false; error: string }>((resolve) => {
+    const onData = (chunk: Buffer) => {
+      cleanup();
+      resolve({ ok: true, chunk });
+    };
+    const onClose = (code: number | null) => {
+      cleanup();
+      const stderr = Buffer.concat(stderrChunks).toString().trim();
+      resolve({ ok: false, error: stderr || `pg_dump exit code ${code}` });
+    };
+    const onError = (err: Error) => {
+      cleanup();
+      resolve({ ok: false, error: err.message });
+    };
+    const cleanup = () => {
+      dump.stdout.off("data", onData);
+      dump.off("close", onClose);
+      dump.off("error", onError);
+    };
+    dump.stdout.once("data", onData);
+    dump.once("close", onClose);
+    dump.once("error", onError);
+  });
+
+  if (!first.ok) {
+    console.error("[backup] pg_dump failed before first byte:", first.error);
+    return NextResponse.json(
+      { error: `pg_dump fehlgeschlagen: ${first.error}` },
+      { status: 500 },
+    );
+  }
+
+  // Ab hier läuft pg_dump und liefert Daten — wir committen 200 und streamen.
+  const firstChunk = first.chunk;
   const stream = new ReadableStream({
     start(controller) {
+      controller.enqueue(firstChunk);
       dump.stdout.on("data", (chunk: Buffer) => controller.enqueue(chunk));
       dump.stderr.on("data", (chunk: Buffer) => {
-        // pg_dump schreibt Warnings nach stderr, das ist meist harmlos.
-        // Bei echten Fehlern liefert der exit-code != 0. Log ist safe:
-        // Passwort ist nicht in den Args und stderr enthält keine URL mehr.
         console.warn("[backup] pg_dump stderr:", chunk.toString().trim());
       });
       dump.on("close", (code) => {
