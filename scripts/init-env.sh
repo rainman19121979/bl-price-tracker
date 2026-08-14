@@ -25,7 +25,13 @@ else
   echo ".env aus .env.example angelegt."
 fi
 
-DB_PASSWORD=$(openssl rand -base64 24)
+# DB_PASSWORD als hex — nur 0-9a-f, damit es in die DATABASE_URL
+# (postgresql://user:pw@host:port/db) eingesetzt werden kann OHNE dass
+# Sonderzeichen wie / oder + oder = die URL zerhacken (Prisma parst dann
+# "xyz=@db:5432/..." als Pfad → "invalid port number").
+DB_PASSWORD=$(openssl rand -hex 24)
+# NEXTAUTH_SECRET + ENCRYPTION_KEY sind reine Signing/Encryption-Werte,
+# stehen nie in URLs — base64 vs hex spielt keine Rolle
 NEXTAUTH_SECRET=$(openssl rand -base64 32)
 ENCRYPTION_KEY=$(openssl rand -hex 32)
 
