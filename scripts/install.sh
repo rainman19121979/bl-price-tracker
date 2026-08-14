@@ -269,6 +269,21 @@ setup_repo() {
     CREATED_DIR=1
   fi
   cd "$INSTALL_DIR"
+
+  # Ownership auf den aufrufenden User (SUDO_USER) übertragen — sonst muss
+  # er später jeden `git`-Befehl und jedes `docker compose` mit sudo aufrufen
+  # und läuft in git-safe.directory-Warnungen.
+  # SUDO_USER ist gesetzt wenn das Skript per `sudo bash …` läuft.
+  if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+    chown -R "$SUDO_USER":"$SUDO_USER" "$INSTALL_DIR"
+    # Und den User in die docker-Gruppe packen, damit er `docker compose`
+    # ohne sudo laufen lassen kann (nach Re-Login)
+    if getent group docker >/dev/null 2>&1; then
+      usermod -aG docker "$SUDO_USER" 2>/dev/null || true
+    fi
+    ok "Ownership auf $SUDO_USER + docker-Gruppen-Mitgliedschaft (nach Re-Login aktiv)."
+  fi
+
   ok "Repo bereit."
 }
 
