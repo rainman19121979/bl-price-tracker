@@ -83,8 +83,8 @@ async function fetchSoldStatsForParts(
   if (shippingCountries) { cf += ` AND buyer_country = ANY($${p++})`; params.push(shippingCountries) }
   if (sellerCountries)   { cf += ` AND seller_country = ANY($${p++})`; params.push(sellerCountries) }
 
-  const rows = await prisma.$queryRawUnsafe<Array<{ part_id: number; new_or_used: string } & SoldStats>>(
-    `SELECT part_id, new_or_used,
+  const rows = await prisma.$queryRawUnsafe<Array<{ part_id: number; new_or_used: string; completeness: string | null } & SoldStats>>(
+    `SELECT part_id, new_or_used, completeness,
       PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY unit_price) FILTER (WHERE date_ordered >= $2)::float as sold7d_median,
       PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY unit_price) FILTER (WHERE date_ordered >= $3)::float as sold30d_median,
       PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY unit_price) FILTER (WHERE date_ordered >= $4)::float as sold60d_median,
@@ -106,12 +106,13 @@ async function fetchSoldStatsForParts(
       PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY unit_price) FILTER (WHERE date_ordered >= $4 AND date_ordered < $3)::float as previous_median
     FROM price_sales
     WHERE part_id = ANY($1) AND date_ordered >= $6 ${cf}
-    GROUP BY part_id, new_or_used`,
+    GROUP BY part_id, new_or_used, completeness`,
     ...params
   )
 
+  // Key mit completeness — NULL wird zu "" damit Map-Key eindeutig ist
   const map = new Map<string, SoldStats>()
-  for (const r of rows) map.set(`${r.part_id}:${r.new_or_used}`, r)
+  for (const r of rows) map.set(`${r.part_id}:${r.new_or_used}:${r.completeness ?? ""}`, r)
   return map
 }
 
@@ -123,25 +124,26 @@ async function fetchStockStatsForParts(
   const params: unknown[] = [partIds]
   const cf = sellerCountries ? (params.push(sellerCountries), " AND seller_country = ANY($2)") : ""
 
-  const rows = await prisma.$queryRawUnsafe<Array<{ part_id: number; new_or_used: string } & StockStats>>(
+  const rows = await prisma.$queryRawUnsafe<Array<{ part_id: number; new_or_used: string; completeness: string | null } & StockStats>>(
     `WITH latest AS (
-      SELECT DISTINCT ON (part_id, new_or_used) part_id, new_or_used, fetched_at
+      SELECT DISTINCT ON (part_id, new_or_used, completeness) part_id, new_or_used, completeness, fetched_at
       FROM price_stock WHERE part_id = ANY($1) ${cf}
-      ORDER BY part_id, new_or_used, fetched_at DESC
+      ORDER BY part_id, new_or_used, completeness, fetched_at DESC
     )
-    SELECT ps.part_id, ps.new_or_used,
+    SELECT ps.part_id, ps.new_or_used, ps.completeness,
       PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ps.unit_price)::float as stock_median,
       (SUM(ps.unit_price * ps.quantity) / NULLIF(SUM(ps.quantity), 0))::float as stock_avg,
       MIN(ps.unit_price)::float as stock_min, MAX(ps.unit_price)::float as stock_max,
       COUNT(*)::int as stock_count, COALESCE(SUM(ps.quantity), 0)::int as stock_qty
     FROM price_stock ps
-    JOIN latest l ON ps.part_id = l.part_id AND ps.new_or_used = l.new_or_used AND ps.fetched_at = l.fetched_at
+    JOIN latest l ON ps.part_id = l.part_id AND ps.new_or_used = l.new_or_used
+      AND ps.completeness IS NOT DISTINCT FROM l.completeness AND ps.fetched_at = l.fetched_at
     ${cf ? "WHERE ps.seller_country = ANY($2)" : ""}
-    GROUP BY ps.part_id, ps.new_or_used`,
+    GROUP BY ps.part_id, ps.new_or_used, ps.completeness`,
     ...params
   )
   const map = new Map<string, StockStats>()
-  for (const r of rows) map.set(`${r.part_id}:${r.new_or_used}`, r)
+  for (const r of rows) map.set(`${r.part_id}:${r.new_or_used}:${r.completeness ?? ""}`, r)
   return map
 }
 
@@ -149,6 +151,7 @@ interface WatchlistRow {
   id: number
   partId: number
   newOrUsed: string
+  completeness: string | null
   myPrice: number
   myQuantity: number
   myCost: number
@@ -204,9 +207,9 @@ export async function recomputeLotPricing(watchlistId: number): Promise<void> {
     fetchStockStatsForParts(partIds, sellerCountries),
   ])
 
-  const key = `${w.partId}:${w.newOrUsed}`
+  const key = `${w.partId}:${w.newOrUsed}:${w.completeness ?? ""}`
   const row: WatchlistRow = {
-    id: w.id, partId: w.partId, newOrUsed: w.newOrUsed,
+    id: w.id, partId: w.partId, newOrUsed: w.newOrUsed, completeness: w.completeness,
     myPrice: w.myPrice ? Number(w.myPrice) : 0,
     myQuantity: w.myQuantity ?? 0,
     myCost: w.myCost ? Number(w.myCost) : 0,
@@ -252,14 +255,14 @@ export async function recomputeAllLotsForPart(partId: number, newOrUsed: 'N' | '
     ])
     for (const w of userLots) {
       const row: WatchlistRow = {
-        id: w.id, partId: w.partId, newOrUsed: w.newOrUsed,
+        id: w.id, partId: w.partId, newOrUsed: w.newOrUsed, completeness: w.completeness,
         myPrice: w.myPrice ? Number(w.myPrice) : 0,
         myQuantity: w.myQuantity ?? 0,
         myCost: w.myCost ? Number(w.myCost) : 0,
         itemType: w.part.itemType, colorId: w.part.colorId,
         categoryId: w.part.categoryId ?? null,
       }
-      const key = `${w.partId}:${w.newOrUsed}`
+      const key = `${w.partId}:${w.newOrUsed}:${w.completeness ?? ""}`
       const r = computeOne(row, soldStats.get(key), stockStats.get(key), rules)
       await prisma.userWatchlist.update({
         where: { id: w.id },
@@ -296,9 +299,9 @@ export async function recomputeAllLotsForUser(userId: number): Promise<{ updated
   interface Result { id: number; suggestedPrice: number | null; ruleName: string | null; trend: string; marketStockMedian: number | null; marketSoldMedian: number | null }
   const results: Result[] = []
   for (const w of lots) {
-    const key = `${w.partId}:${w.newOrUsed}`
+    const key = `${w.partId}:${w.newOrUsed}:${w.completeness ?? ""}`
     const row: WatchlistRow = {
-      id: w.id, partId: w.partId, newOrUsed: w.newOrUsed,
+      id: w.id, partId: w.partId, newOrUsed: w.newOrUsed, completeness: w.completeness,
       myPrice: w.myPrice ? Number(w.myPrice) : 0,
       myQuantity: w.myQuantity ?? 0,
       myCost: w.myCost ? Number(w.myCost) : 0,

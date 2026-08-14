@@ -70,6 +70,7 @@ export interface InventoryItem {
   color_name: string
   quantity: number
   new_or_used: 'N' | 'U'
+  completeness?: 'C' | 'I' | 'S'  // BrickLink liefert das für SET-Items; NULL/undef bei PART/MINIFIG
   unit_price: string
   description: string
   remarks: string
@@ -267,11 +268,18 @@ export class BrickLinkClient {
     newOrUsed: 'N' | 'U',
     guideType: 'sold' | 'stock' = 'sold',
     countryCode?: string,
+    completeness?: 'C' | 'I' | 'S',
   ): Promise<PriceGuideResponse> {
     // No country_code by default: BL returns all sellers/sales worldwide,
     // each price_detail entry carries seller_country_code so we can
     // filter per-user in SQL. Pass a code to narrow at the BL side
     // (e.g. `test` route in keys/[id]/test uses "DE" as a cheap probe).
+    //
+    // completeness (SET-only): C=complete, I=incomplete, S=sealed. Wenn nicht
+    // gesetzt liefert BL bei SETs einen zusammengefassten Wert über alle
+    // Completeness-Stufen — das führt zu Preis-Vermischung (sealed 3-5×
+    // teurer als used-complete), deshalb crawlen wir SETs separat pro
+    // Completeness und passen den Query-Parameter hier an.
     const params = new URLSearchParams({
       color_id: String(colorId),
       guide_type: guideType,
@@ -280,6 +288,7 @@ export class BrickLinkClient {
       vat: 'Y',
     })
     if (countryCode) params.set('country_code', countryCode)
+    if (completeness && itemType === 'SET') params.set('completeness', completeness)
     const url = `${BASE_URL}/items/${encodeURIComponent(itemType)}/${encodeURIComponent(itemNo)}/price?${params}`
 
     const response = await this.signedGet(url)

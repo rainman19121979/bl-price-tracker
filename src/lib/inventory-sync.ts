@@ -69,6 +69,10 @@ export async function syncBricklinkInventory(userId: number): Promise<SyncResult
     const rmks = item.remarks ? decodeHtmlEntities(item.remarks) : null
     const bulk = item.bulk && item.bulk > 0 ? item.bulk : 1
     const blDateAdded = item.date_created ? new Date(item.date_created) : null
+    // Completeness nur bei SETs sinnvoll; BL liefert bei PART/MINIFIG kein Feld
+    const completeness = itemType === 'SET' && (item.completeness === 'C' || item.completeness === 'I' || item.completeness === 'S')
+      ? item.completeness
+      : null
 
     try {
       const partKey = `${partNo}:${colorId}:${itemType}`
@@ -114,14 +118,14 @@ export async function syncBricklinkInventory(userId: number): Promise<SyncResult
             changedAt: (qtyChanged || priceChanged) ? new Date() : existing.changedAt,
             description: desc, saleRate, myCost, remarks: rmks, bulk,
             blDateAdded: blDateAdded ?? existing.blDateAdded,
-            partId: part.id, newOrUsed,
+            partId: part.id, newOrUsed, completeness,
           },
         })
         updatedCount++
       } else {
         await prisma.userWatchlist.create({
           data: {
-            userId, partId: part.id, newOrUsed, blInventoryId,
+            userId, partId: part.id, newOrUsed, completeness, blInventoryId,
             myPrice: price, myQuantity: qty, description: desc,
             saleRate, myCost, remarks: rmks, bulk, blDateAdded,
           },

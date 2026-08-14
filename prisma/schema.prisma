@@ -154,6 +154,7 @@ model PriceSale {
   sellerCountry String   @default("DE") @map("seller_country") @db.VarChar(2)
   buyerCountry  String?  @map("buyer_country") @db.VarChar(2)
   newOrUsed     String   @default("U") @map("new_or_used") @db.Char(1)
+  completeness  String?  @map("completeness") @db.Char(1)  // SETs: 'C'=complete 'I'=incomplete 'S'=sealed; NULL bei PART/MINIFIG
   fetchedAt     DateTime @map("fetched_at") @db.Date
   createdAt     DateTime @default(now()) @map("created_at")
   part          Part     @relation(fields: [partId], references: [id], onDelete: Cascade)
@@ -162,6 +163,7 @@ model PriceSale {
   @@index([partId, dateOrdered(sort: Desc)], map: "idx_sales_part_date")
   @@index([buyerCountry, dateOrdered(sort: Desc)], map: "idx_sales_buyer")
   @@index([partId, newOrUsed, dateOrdered(sort: Desc)], map: "idx_sales_part_new_date")
+  @@index([partId, newOrUsed, completeness, dateOrdered(sort: Desc)], map: "idx_sales_part_new_comp_date")
   @@map("price_sales")
 }
 
@@ -173,6 +175,7 @@ model PriceStock {
   quantity      Int
   sellerCountry String   @default("DE") @map("seller_country") @db.VarChar(2)
   newOrUsed     String   @default("U") @map("new_or_used") @db.Char(1)
+  completeness  String?  @map("completeness") @db.Char(1)  // wie bei price_sales
   fetchedAt     DateTime @map("fetched_at") @db.Date
   createdAt     DateTime @default(now()) @map("created_at")
   part          Part     @relation(fields: [partId], references: [id], onDelete: Cascade)
@@ -180,6 +183,7 @@ model PriceStock {
   @@id([id, fetchedAt])
   @@index([partId, fetchedAt(sort: Desc)], map: "idx_stock_part_date")
   @@index([partId, newOrUsed, fetchedAt(sort: Desc)], map: "idx_stock_part_new_date")
+  @@index([partId, newOrUsed, completeness, fetchedAt(sort: Desc)], map: "idx_stock_part_new_comp_date")
   @@map("price_stock")
 }
 
@@ -188,6 +192,7 @@ model UserWatchlist {
   userId        Int      @map("user_id")
   partId        Int      @map("part_id")
   newOrUsed     String   @default("U") @map("new_or_used") @db.Char(1)
+  completeness  String?  @map("completeness") @db.Char(1)  // nur bei SET-Lots gesetzt
   blInventoryId Int?     @map("bl_inventory_id")
   priority      Int      @default(5)
   myPrice       Decimal? @map("my_price") @db.Decimal(10, 4)

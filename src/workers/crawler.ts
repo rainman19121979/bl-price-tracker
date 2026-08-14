@@ -48,15 +48,18 @@ async function calculateDelay(): Promise<number> {
   }
 
   // Maintenance mode: spread evenly over freshDays
-  // totalLots × 2 (sold+stock) calls needed per cycle
+  // Non-SET-Lots × 2 (sold+stock) + SET-Lots × 6 (sold+stock × C/I/S) = calls/cycle
   const user = await prisma.user.findFirst({ where: { id: { in: userIds } }, select: { freshDays: true } })
   const freshDays = user?.freshDays ?? 14
-  const totalLots = await prisma.userWatchlist.count({ where: { userId: { in: userIds } } })
-  const callsNeeded = totalLots * 2
+  const [setLots, nonSetLots] = await Promise.all([
+    prisma.userWatchlist.count({ where: { userId: { in: userIds }, part: { itemType: 'SET' } } }),
+    prisma.userWatchlist.count({ where: { userId: { in: userIds }, part: { itemType: { not: 'SET' } } } }),
+  ])
+  const callsNeeded = nonSetLots * 2 + setLots * 6
   const callsPerDay = Math.ceil(callsNeeded / freshDays)
   const delay = Math.round((86400 / Math.max(1, callsPerDay)) * 1000)
 
-  console.log(`[Crawler] Erhaltungsmodus: ${callsPerDay} Calls/Tag fuer ${totalLots} Lots in ${freshDays} Tagen`)
+  console.log(`[Crawler] Erhaltungsmodus: ${callsPerDay} Calls/Tag fuer ${nonSetLots} Parts/Minifigs + ${setLots} SETs (×3 wg. C/I/S) in ${freshDays} Tagen`)
   return Math.max(MIN_DELAY_MS, delay)
 }
 
@@ -222,70 +225,85 @@ async function findNextJob(): Promise<NextJob | null> {
 // ---------------------------------------------------------------------------
 
 async function processSold(job: NextJob, client: BrickLinkClient): Promise<void> {
-  const response = await client.getPriceGuide(
-    job.partNo, job.itemType, job.colorId, job.newOrUsed, 'sold'
-  )
+  // Bei SETs müssen Preise pro Completeness getrennt gecrawlt werden — sonst
+  // vermischen sich sealed und used-complete zu unbrauchbaren Medians.
+  const completenessList: Array<'C' | 'I' | 'S' | undefined> =
+    job.itemType === 'SET' ? ['C', 'I', 'S'] : [undefined]
 
-  const data = response.data
   const today = new Date()
   today.setHours(0, 0, 0, 0)
+  const CHUNK = 50
+  let totalDetails = 0
+  let totalDayEntries = 0
 
-  if (data.price_detail && data.price_detail.length > 0) {
-    // Batch insert sales in chunks of 50 concurrent parameterized queries
-    const CHUNK = 50
+  for (const completeness of completenessList) {
+    const response = await client.getPriceGuide(
+      job.partNo, job.itemType, job.colorId, job.newOrUsed, 'sold', undefined, completeness
+    )
+    const data = response.data
+    if (!data.price_detail || data.price_detail.length === 0) continue
+
+    // Sales einfügen (mit completeness-Marker)
     for (let i = 0; i < data.price_detail.length; i += CHUNK) {
       await Promise.all(data.price_detail.slice(i, i + CHUNK).map(sale =>
         prisma.$executeRaw`
-          INSERT INTO price_sales (part_id, date_ordered, unit_price, quantity, seller_country, buyer_country, new_or_used, fetched_at, created_at)
+          INSERT INTO price_sales (part_id, date_ordered, unit_price, quantity, seller_country, buyer_country, new_or_used, completeness, fetched_at, created_at)
           VALUES (${job.partId}, ${new Date(sale.date_ordered)}, ${parseFloat(sale.unit_price)}::decimal(10,4),
-            ${sale.quantity}, ${sale.seller_country_code || 'XX'}, ${sale.buyer_country_code || null}, ${job.newOrUsed}, ${today}, NOW())
+            ${sale.quantity}, ${sale.seller_country_code || 'XX'}, ${sale.buyer_country_code || null}, ${job.newOrUsed},
+            ${completeness ?? null}, ${today}, NOW())
           ON CONFLICT DO NOTHING
         `
       ))
     }
+    totalDetails += data.price_detail.length
 
-    // Daily aggregates
-    const dailyMap = new Map<string, { prices: number[]; quantities: number[] }>()
-    for (const sale of data.price_detail) {
-      const day = sale.date_ordered.split('T')[0]
-      const entry = dailyMap.get(day) || { prices: [], quantities: [] }
-      entry.prices.push(parseFloat(sale.unit_price))
-      entry.quantities.push(sale.quantity)
-      dailyMap.set(day, entry)
+    // Daily-Rollup NUR für Non-SETs (bei SETs würde der completeness-Mix
+    // die Aggregat-Werte in price_daily verfälschen — SET-Callers nutzen
+    // eh price_sales mit completeness-Filter direkt).
+    if (job.itemType !== 'SET') {
+      const dailyMap = new Map<string, { prices: number[]; quantities: number[] }>()
+      for (const sale of data.price_detail) {
+        const day = sale.date_ordered.split('T')[0]
+        const entry = dailyMap.get(day) || { prices: [], quantities: [] }
+        entry.prices.push(parseFloat(sale.unit_price))
+        entry.quantities.push(sale.quantity)
+        dailyMap.set(day, entry)
+      }
+
+      const dailyEntries = Array.from(dailyMap.entries())
+      for (let i = 0; i < dailyEntries.length; i += CHUNK) {
+        await Promise.all(dailyEntries.slice(i, i + CHUNK).map(([dayStr, { prices, quantities }]) => {
+          const fetchDate = new Date(dayStr)
+          fetchDate.setHours(0, 0, 0, 0)
+          const totalQty = quantities.reduce((a, b) => a + b, 0)
+
+          return prisma.priceDaily.upsert({
+            where: { partId_fetchDate_newOrUsed_sellerCountry: { partId: job.partId, fetchDate, newOrUsed: job.newOrUsed, sellerCountry: 'XX' } },
+            update: {
+              minPrice: Math.min(...prices), maxPrice: Math.max(...prices),
+              avgPrice: prices.reduce((a, b) => a + b, 0) / prices.length,
+              qtyAvgPrice: prices.reduce((s, p, i) => s + p * quantities[i], 0) / totalQty,
+              unitQuantity: prices.length, totalQuantity: totalQty,
+            },
+            create: {
+              partId: job.partId, fetchDate, newOrUsed: job.newOrUsed, sellerCountry: 'XX', currencyCode: 'EUR',
+              minPrice: Math.min(...prices), maxPrice: Math.max(...prices),
+              avgPrice: prices.reduce((a, b) => a + b, 0) / prices.length,
+              qtyAvgPrice: prices.reduce((s, p, i) => s + p * quantities[i], 0) / totalQty,
+              unitQuantity: prices.length, totalQuantity: totalQty,
+            },
+          })
+        }))
+      }
+      totalDayEntries += dailyMap.size
     }
+  }  // completeness-Loop
 
-    // Daily rollup stored under sentinel 'XX' — global across sellers.
-    // Per-country daily aggregates would require re-splitting price_detail
-    // by seller_country; callers use price_sales directly for country-filtered aggregation.
-    const dailyEntries = Array.from(dailyMap.entries())
-    for (let i = 0; i < dailyEntries.length; i += CHUNK) {
-      await Promise.all(dailyEntries.slice(i, i + CHUNK).map(([dayStr, { prices, quantities }]) => {
-        const fetchDate = new Date(dayStr)
-        fetchDate.setHours(0, 0, 0, 0)
-        const totalQty = quantities.reduce((a, b) => a + b, 0)
-
-        return prisma.priceDaily.upsert({
-          where: { partId_fetchDate_newOrUsed_sellerCountry: { partId: job.partId, fetchDate, newOrUsed: job.newOrUsed, sellerCountry: 'XX' } },
-          update: {
-            minPrice: Math.min(...prices), maxPrice: Math.max(...prices),
-            avgPrice: prices.reduce((a, b) => a + b, 0) / prices.length,
-            qtyAvgPrice: prices.reduce((s, p, i) => s + p * quantities[i], 0) / totalQty,
-            unitQuantity: prices.length, totalQuantity: totalQty,
-          },
-          create: {
-            partId: job.partId, fetchDate, newOrUsed: job.newOrUsed, sellerCountry: 'XX', currencyCode: 'EUR',
-            minPrice: Math.min(...prices), maxPrice: Math.max(...prices),
-            avgPrice: prices.reduce((a, b) => a + b, 0) / prices.length,
-            qtyAvgPrice: prices.reduce((s, p, i) => s + p * quantities[i], 0) / totalQty,
-            unitQuantity: prices.length, totalQuantity: totalQty,
-          },
-        })
-      }))
-    }
-
-    console.log(`[Crawler] SOLD ${job.partNo}/${job.colorId}/${job.newOrUsed}: ${data.price_detail.length} Sales, ${dailyMap.size} Tage`)
+  const completenessLabel = job.itemType === 'SET' ? ' [C+I+S]' : ''
+  if (totalDetails > 0) {
+    console.log(`[Crawler] SOLD${completenessLabel} ${job.partNo}/${job.colorId}/${job.newOrUsed}: ${totalDetails} Sales, ${totalDayEntries} Tage`)
   } else {
-    console.log(`[Crawler] SOLD ${job.partNo}/${job.colorId}/${job.newOrUsed}: keine Sales`)
+    console.log(`[Crawler] SOLD${completenessLabel} ${job.partNo}/${job.colorId}/${job.newOrUsed}: keine Sales`)
   }
 
   const now = new Date()
@@ -303,36 +321,47 @@ async function processSold(job: NextJob, client: BrickLinkClient): Promise<void>
 // ---------------------------------------------------------------------------
 
 async function processStock(job: NextJob, client: BrickLinkClient): Promise<void> {
-  const response = await client.getPriceGuide(
-    job.partNo, job.itemType, job.colorId, job.newOrUsed, 'stock'
-  )
+  // Bei SETs pro Completeness getrennt (siehe processSold-Kommentar)
+  const completenessList: Array<'C' | 'I' | 'S' | undefined> =
+    job.itemType === 'SET' ? ['C', 'I', 'S'] : [undefined]
 
-  const data = response.data
   const today = new Date()
   today.setHours(0, 0, 0, 0)
+  const CHUNK = 50
+  let totalOffers = 0
 
-  // Alten Snapshot für heute löschen + neue Daten einfügen
-  await prisma.$executeRaw`
-    DELETE FROM price_stock WHERE part_id = ${job.partId} AND new_or_used = ${job.newOrUsed} AND fetched_at = ${today}
-  `
+  for (const completeness of completenessList) {
+    const response = await client.getPriceGuide(
+      job.partNo, job.itemType, job.colorId, job.newOrUsed, 'stock', undefined, completeness
+    )
+    const data = response.data
 
-  if (data.price_detail && data.price_detail.length > 0) {
-    // Batch insert stock offers in chunks of 50 concurrent parameterized queries
-    const CHUNK = 50
+    // Alten Snapshot dieses Tages für gleiche (part, condition, completeness) wegwerfen
+    await prisma.$executeRaw`
+      DELETE FROM price_stock
+      WHERE part_id = ${job.partId}
+        AND new_or_used = ${job.newOrUsed}
+        AND fetched_at = ${today}
+        AND completeness IS NOT DISTINCT FROM ${completeness ?? null}
+    `
+
+    if (!data.price_detail || data.price_detail.length === 0) continue
+
     for (let i = 0; i < data.price_detail.length; i += CHUNK) {
       await Promise.all(data.price_detail.slice(i, i + CHUNK).map(offer =>
         prisma.$executeRaw`
-          INSERT INTO price_stock (part_id, unit_price, quantity, seller_country, new_or_used, fetched_at, created_at)
+          INSERT INTO price_stock (part_id, unit_price, quantity, seller_country, new_or_used, completeness, fetched_at, created_at)
           VALUES (${job.partId}, ${parseFloat(offer.unit_price)}::decimal(10,4), ${offer.quantity},
-            ${offer.seller_country_code || 'XX'}, ${job.newOrUsed}, ${today}, NOW())
+            ${offer.seller_country_code || 'XX'}, ${job.newOrUsed}, ${completeness ?? null}, ${today}, NOW())
           ON CONFLICT DO NOTHING
         `
       ))
     }
-    console.log(`[Crawler] STOCK ${job.partNo}/${job.colorId}/${job.newOrUsed}: ${data.price_detail.length} Angebote, ${data.total_quantity} Stk`)
-  } else {
-    console.log(`[Crawler] STOCK ${job.partNo}/${job.colorId}/${job.newOrUsed}: keine Angebote`)
+    totalOffers += data.price_detail.length
   }
+
+  const completenessLabel = job.itemType === 'SET' ? ' [C+I+S]' : ''
+  console.log(`[Crawler] STOCK${completenessLabel} ${job.partNo}/${job.colorId}/${job.newOrUsed}: ${totalOffers} Angebote`)
 
   const now = new Date()
   await prisma.part.update({
@@ -381,8 +410,10 @@ async function crawlerLoop(): Promise<void> {
       // Remember last type for alternation
       await redis.set('crawler:lastType', job.type)
 
-      // Log API call (rolling 24h window)
-      await logApiCall(job.apiKeyId)
+      // Log API call(s) (rolling 24h window). SETs machen 3 Calls (C+I+S),
+      // Parts/Minifigs 1 Call pro sold/stock-Phase.
+      const callCount = job.itemType === 'SET' ? 3 : 1
+      await logApiCall(job.apiKeyId, callCount)
 
       // Clear priority flag after crawl
       await prisma.userWatchlist.updateMany({
