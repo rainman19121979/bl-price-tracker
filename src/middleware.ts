@@ -31,6 +31,37 @@ export default auth((req) => {
     if (!req.auth) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    // CSRF-Schutz für state-ändernde Requests: prüfe Origin/Referer gegen
+    // Host-Header. Same-origin fetch() setzt Origin auto — Cross-Origin-POSTs
+    // (z.B. von einer bösartigen Seite) haben eine fremde Origin und fliegen.
+    // SameSite=Lax auf dem Session-Cookie schützt zwar viele Fälle, aber
+    // Top-Level-Navigations-POSTs kommen trotzdem durch — deswegen dieser
+    // Zweit-Layer.
+    const method = req.method;
+    if (method === "POST" || method === "PUT" || method === "PATCH" || method === "DELETE") {
+      const origin = req.headers.get("origin");
+      const host = req.headers.get("host");
+      if (origin && host) {
+        try {
+          const originHost = new URL(origin).host;
+          if (originHost !== host) {
+            return NextResponse.json(
+              { error: "CSRF: Cross-Origin-Request abgelehnt" },
+              { status: 403 }
+            );
+          }
+        } catch {
+          return NextResponse.json({ error: "CSRF: Ungültiger Origin-Header" }, { status: 403 });
+        }
+      }
+      // Kein Origin-Header (z.B. bei manchen curl-Aufrufen ohne -H origin):
+      // NextAuth setzt bei fetch() eh Origin, echte Browser auch — Requests
+      // ohne Origin sind fast immer Skripts/curl, die wir per Bearer-Token
+      // gehen sollten (nicht per Session-Cookie). Wir lassen sie durch,
+      // um API-Nutzung mit Bearer nicht zu brechen.
+    }
+
     return NextResponse.next();
   }
 

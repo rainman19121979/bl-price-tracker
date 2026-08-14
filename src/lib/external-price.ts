@@ -228,6 +228,41 @@ export async function authenticateBearer(request: Request): Promise<{ userId: nu
   return { userId: tokenRow.userId, tokenId: tokenRow.id };
 }
 
+/**
+ * Rate-Limit-Check für externe API-Endpoints. Aufrufen NACH authenticateBearer.
+ * Returned NextResponse (429) wenn Limit überschritten — Endpoint muss die
+ * dann direkt returnen. Bei null: Limit OK, weitermachen.
+ *
+ * Zwei Buckets:
+ *   ext:token:<id>   120 req / 60s   → Basis-Throttle pro Token
+ *   ext:token:<id>:min 20 req / 5s   → Burst-Schutz gegen Batch-Loops
+ */
+export async function enforceExternalRateLimit(tokenId: number): Promise<Response | null> {
+  const { rateLimit } = await import("./rate-limit");
+  const [minBucket, burstBucket] = await Promise.all([
+    rateLimit(`ext:token:${tokenId}`, 120, 60),
+    rateLimit(`ext:token:${tokenId}:burst`, 20, 5),
+  ]);
+  if (!minBucket.ok || !burstBucket.ok) {
+    const worst = !burstBucket.ok ? burstBucket : minBucket;
+    return new Response(
+      JSON.stringify({
+        error: "Rate limit exceeded",
+        retryAfterSec: worst.resetSec,
+        limits: { perMinute: 120, burst5s: 20 },
+      }),
+      {
+        status: 429,
+        headers: {
+          "Content-Type": "application/json",
+          "Retry-After": String(worst.resetSec),
+        },
+      },
+    );
+  }
+  return null;
+}
+
 export function validateRequest(item: {
   partNo?: unknown; colorId?: unknown; itemType?: unknown; condition?: unknown;
 }): { ok: true; req: PriceRequest } | { ok: false; error: string } {

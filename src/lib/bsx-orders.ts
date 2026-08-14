@@ -56,7 +56,19 @@ interface BsxItem {
 }
 
 export async function parseBsxContent(raw: string): Promise<ParsedOrder | null> {
-  const parsed: BsxXml = await parseStringPromise(raw)
+  // Rough billion-laughs / entity-expansion protection: BSX orders sind
+  // durchgehend flach, tausende Entity-Referenzen deuten immer auf einen
+  // XML-Bomb-Angriff. Zählen und ablehnen bevor der Parser explodiert.
+  const entityRefs = (raw.match(/&[a-zA-Z#][\w#]{0,20};/g) || []).length
+  if (entityRefs > 5000) {
+    throw new Error(`BSX-Datei enthält verdächtig viele Entity-Referenzen (${entityRefs}) — Bomb abgelehnt`)
+  }
+  const parsed: BsxXml = await parseStringPromise(raw, {
+    // xml2js baut auf sax auf → keine external-entity-resolution (kein XXE),
+    // aber default resolveEntities auf character-entities muss trotzdem
+    // limitiert bleiben durch unseren Vor-Check oben.
+    explicitArray: true,
+  })
   const order = parsed.BrickStoreXML?.Order?.[0]
   if (!order) return null
 

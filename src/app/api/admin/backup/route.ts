@@ -22,22 +22,31 @@ export async function GET() {
     return NextResponse.json({ error: "DATABASE_URL nicht gesetzt" }, { status: 500 });
   }
 
-  // pg_dump --format=plain (SQL) --no-owner (kein User-Bind) --clean (mit DROP)
+  // DATABASE_URL parsen und Passwort per PGPASSWORD env übergeben — so
+  // taucht es weder in `ps auxf` noch in pg_dump-stderr-Warnings auf.
+  const { host, port, pathname, username, password } = new URL(dbUrl);
   const dump = spawn("pg_dump", [
+    "--host", host,
+    "--port", port || "5432",
+    "--username", username,
+    "--dbname", pathname.slice(1),
     "--format=plain",
     "--no-owner",
     "--no-privileges",
     "--clean",
     "--if-exists",
-    dbUrl,
-  ], { stdio: ["ignore", "pipe", "pipe"] });
+  ], {
+    stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, PGPASSWORD: password || "" },
+  });
 
   const stream = new ReadableStream({
     start(controller) {
       dump.stdout.on("data", (chunk: Buffer) => controller.enqueue(chunk));
       dump.stderr.on("data", (chunk: Buffer) => {
         // pg_dump schreibt Warnings nach stderr, das ist meist harmlos.
-        // Bei echten Fehlern liefert der exit-code != 0.
+        // Bei echten Fehlern liefert der exit-code != 0. Log ist safe:
+        // Passwort ist nicht in den Args und stderr enthält keine URL mehr.
         console.warn("[backup] pg_dump stderr:", chunk.toString().trim());
       });
       dump.on("close", (code) => {

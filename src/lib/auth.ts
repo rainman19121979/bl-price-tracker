@@ -3,11 +3,9 @@ import Credentials from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { prisma } from "./db";
 
-// NOTE: no rate-limit import here. auth.ts is pulled into the Edge-Runtime
-// middleware bundle, and ioredis / redis-errors can't run in Edge.
-// Login rate-limit is enforced instead in a route-level wrapper for the
-// signin API route. bcrypt-12 (~200ms per attempt) throttles bruteforce
-// even without the Redis bucket.
+// NOTE: rate-limit uses ioredis and can't live in the Edge-Runtime middleware
+// bundle. We import it dynamically inside authorize() (which runs in the Node
+// runtime), so the Edge bundle stays clean.
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
@@ -17,13 +15,29 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
       },
-      async authorize(credentials) {
+      async authorize(credentials, request) {
         if (!credentials?.email || !credentials?.password) {
           return null;
         }
 
         const email = credentials.email as string;
         const password = credentials.password as string;
+
+        // Rate-limit: two counters (both silent-fail on redis down).
+        //   auth:login:email:<email>  10 attempts / 15 min  → schützt einen Account gegen Passwort-Spray
+        //   auth:login:ip:<ip>        30 attempts / 15 min  → schützt vor Bruteforce quer über viele Accounts
+        // Wichtig: alle Auth-Versuche (auch die erfolgreichen) verbrauchen einen Slot,
+        // 10/15 min ist locker genug für einen normalen User der sich mal vertippt hat.
+        try {
+          const { rateLimit, clientIp } = await import("./rate-limit");
+          const emailBucket = await rateLimit(`auth:login:email:${email.toLowerCase()}`, 10, 900);
+          if (!emailBucket.ok) return null;
+          const ip = request ? clientIp(request as Request) : "unknown";
+          if (ip !== "unknown") {
+            const ipBucket = await rateLimit(`auth:login:ip:${ip}`, 30, 900);
+            if (!ipBucket.ok) return null;
+          }
+        } catch { /* redis down → login zulassen, lieber Verfügbarkeit als hart abwürgen */ }
 
         const user = await prisma.user.findUnique({
           where: { email },

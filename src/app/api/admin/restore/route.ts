@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { spawn } from "child_process";
-import { Writable } from "stream";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 600;
@@ -59,9 +58,48 @@ export async function POST(request: NextRequest) {
     }, { status: 400 });
   }
 
+  // Sicherheits-Scan der KOMPLETTEN Datei auf Postgres-RCE-Vektoren.
+  // pg_dump erzeugt nie diese Muster in normalen Dumps; jede Präsenz ist
+  // ein Zeichen für einen manipulierten/gefährlichen Dump.
+  //
+  // - COPY … FROM PROGRAM  → beliebige Shell-Command-Execution als postgres-User
+  //   (nur mit pg_execute_server_program-Role, aber unsere App-DB-Role hat es)
+  // - \! psql-Meta-Command → Shell-Escape wenn per psql eingespielt
+  // - CREATE EXTENSION … / SQL-Function-Loading kann C-Extensions einbinden
+  //
+  // Wir lesen die Datei einmal komplett zum Scan (bis 500 MB — passt in RAM
+  // auf dem Zielsystem) und schreiben sie danach an psql weiter.
+  const fullText = await file.text();
+  const dangerousPatterns = [
+    /\bCOPY\b[\s\S]{0,200}\bFROM\s+PROGRAM\b/i,
+    /^\s*\\!/m,
+    /\bCREATE\s+EXTENSION\b/i,
+    /\bCREATE\s+(OR\s+REPLACE\s+)?FUNCTION\b[\s\S]{0,500}\bLANGUAGE\s+C\b/i,
+  ];
+  for (const pat of dangerousPatterns) {
+    const m = fullText.match(pat);
+    if (m) {
+      return NextResponse.json({
+        error: `Verdächtiges SQL-Muster in Backup erkannt und abgelehnt: ${m[0].slice(0, 80)}...`,
+        hint: "pg_dump-Standardausgaben enthalten diese Muster nie. Datei sieht manipuliert oder von fremder Quelle.",
+      }, { status: 400 });
+    }
+  }
+
   const t0 = Date.now();
-  const psql = spawn("psql", ["--single-transaction", "--set", "ON_ERROR_STOP=1", dbUrl], {
+  // Parse DATABASE_URL → PGPASSWORD, damit das Passwort nicht als CLI-Arg
+  // sichtbar ist und auch nicht in psql-Fehlermeldungen leakt.
+  const { host, port, pathname, username, password } = new URL(dbUrl);
+  const psql = spawn("psql", [
+    "--host", host,
+    "--port", port || "5432",
+    "--username", username,
+    "--dbname", pathname.slice(1),
+    "--single-transaction",
+    "--set", "ON_ERROR_STOP=1",
+  ], {
     stdio: ["pipe", "pipe", "pipe"],
+    env: { ...process.env, PGPASSWORD: password || "" },
   });
 
   let stderrChunks = "";
@@ -69,16 +107,14 @@ export async function POST(request: NextRequest) {
     stderrChunks += chunk.toString();
   });
 
-  // Stream die Upload-Datei in psql's stdin
-  const stdinWritable = Writable.toWeb(psql.stdin);
-  const body = file.stream();
-
+  // Datei-Text (bereits von der Security-Scan-Phase in RAM) an psql pipen.
   try {
-    await body.pipeTo(stdinWritable);
+    psql.stdin.write(fullText);
+    psql.stdin.end();
   } catch (err) {
     psql.kill("SIGTERM");
     return NextResponse.json({
-      error: `Upload-Stream-Fehler: ${err instanceof Error ? err.message : String(err)}`,
+      error: `Pipe-Fehler: ${err instanceof Error ? err.message : String(err)}`,
     }, { status: 500 });
   }
 

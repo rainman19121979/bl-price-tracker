@@ -18,20 +18,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Setup mode: first-ever user is always allowed and becomes admin
-    const userCount = await prisma.user.count();
-    const isFirstUser = userCount === 0;
-
-    if (!isFirstUser) {
-      const open = await isRegistrationOpen();
-      if (!open) {
-        return NextResponse.json(
-          { error: "Registrierung ist derzeit geschlossen." },
-          { status: 403 }
-        );
-      }
-    }
-
     const body = await request.json();
     const parsed = registerSchema.safeParse(body);
 
@@ -45,43 +31,76 @@ export async function POST(request: NextRequest) {
 
     const { email, username, password } = parsed.data;
 
-    // Check for existing email or username
-    const existingEmail = await prisma.user.findUnique({
-      where: { email },
-    });
-    const existingUsername = await prisma.user.findUnique({
-      where: { username },
-    });
-    if (existingEmail || existingUsername) {
-      return NextResponse.json(
-        { error: "Registrierung fehlgeschlagen. Bitte versuche andere Zugangsdaten." },
-        { status: 400 }
-      );
-    }
-
-    // Hash password
+    // Hash password AUSSERHALB der Transaktion (bcrypt ist teuer, blockiert
+    // sonst DB-Locks unnötig lange)
     const passwordHash = await bcrypt.hash(password, 12);
 
-    // Create user — first user gets admin + crawler enabled by default
-    await prisma.user.create({
-      data: {
-        email,
-        username,
-        passwordHash,
-        isAdmin: isFirstUser,
-        crawlerEnabled: isFirstUser,
-      },
-    });
+    // Ganze Registrierung in einer Serializable-Transaktion + Postgres-
+    // Advisory-Lock (arbitrary 4711). Verhindert:
+    //   - Race #1: zwei parallele Registrierungen mit derselben Email/Username
+    //   - Race #2: zwei parallele First-User-Registrierungen werden beide Admin
+    // Advisory-Lock ist prozess-scoped und serialisiert alle Register-Requests
+    // sequenziell — bei einem Register/Sek kein Problem.
+    try {
+      const result = await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(4711)`;
 
-    return NextResponse.json(
-      {
-        message: isFirstUser
-          ? "Admin-Konto erstellt. Bitte anmelden."
-          : "Konto erfolgreich erstellt.",
-        isFirstUser,
-      },
-      { status: 201 }
-    );
+        const userCount = await tx.user.count();
+        const isFirstUser = userCount === 0;
+
+        if (!isFirstUser) {
+          const open = await isRegistrationOpen();
+          if (!open) {
+            throw new Error("REGISTRATION_CLOSED");
+          }
+        }
+
+        const [existingEmail, existingUsername] = await Promise.all([
+          tx.user.findUnique({ where: { email } }),
+          tx.user.findUnique({ where: { username } }),
+        ]);
+        if (existingEmail || existingUsername) {
+          throw new Error("DUPLICATE_CREDENTIALS");
+        }
+
+        await tx.user.create({
+          data: {
+            email,
+            username,
+            passwordHash,
+            isAdmin: isFirstUser,
+            crawlerEnabled: isFirstUser,
+          },
+        });
+
+        return { isFirstUser };
+      }, { isolationLevel: "Serializable" });
+
+      return NextResponse.json(
+        {
+          message: result.isFirstUser
+            ? "Admin-Konto erstellt. Bitte anmelden."
+            : "Konto erfolgreich erstellt.",
+          isFirstUser: result.isFirstUser,
+        },
+        { status: 201 }
+      );
+    } catch (txError) {
+      const msg = txError instanceof Error ? txError.message : String(txError);
+      if (msg === "REGISTRATION_CLOSED") {
+        return NextResponse.json(
+          { error: "Registrierung ist derzeit geschlossen." },
+          { status: 403 }
+        );
+      }
+      if (msg === "DUPLICATE_CREDENTIALS") {
+        return NextResponse.json(
+          { error: "Registrierung fehlgeschlagen. Bitte versuche andere Zugangsdaten." },
+          { status: 400 }
+        );
+      }
+      throw txError;
+    }
   } catch (error) {
     console.error("Registration error:", error);
     return NextResponse.json(

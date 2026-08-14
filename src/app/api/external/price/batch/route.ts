@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { authenticateBearer, validateRequest, computeExternalPrice, getApiUsageFor } from "@/lib/external-price";
+import { authenticateBearer, enforceExternalRateLimit, validateRequest, computeExternalPrice, getApiUsageFor } from "@/lib/external-price";
 
 const MAX_BATCH_SIZE = 100;
 
@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic";
 export async function POST(request: NextRequest) {
   const auth = await authenticateBearer(request);
   if (!auth) return NextResponse.json({ error: "Bearer token required or invalid" }, { status: 401 });
+  const _rl = await enforceExternalRateLimit(auth.tokenId); if (_rl) return _rl;
 
   let body: unknown;
   try { body = await request.json(); } catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }); }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { authenticateBearer, getApiUsageFor } from "@/lib/external-price";
+import { authenticateBearer, enforceExternalRateLimit, getApiUsageFor } from "@/lib/external-price";
 import { prisma } from "@/lib/db";
 
 const MAX_LIMIT = 500;
@@ -16,6 +16,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
   const auth = await authenticateBearer(request);
   if (!auth) return NextResponse.json({ error: "Bearer token required or invalid" }, { status: 401 });
+  const _rl = await enforceExternalRateLimit(auth.tokenId); if (_rl) return _rl;
 
   const { searchParams } = new URL(request.url);
   const platform = searchParams.get("platform");

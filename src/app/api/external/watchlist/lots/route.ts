@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { authenticateBearer, getApiUsageFor } from "@/lib/external-price";
+import { authenticateBearer, enforceExternalRateLimit, getApiUsageFor } from "@/lib/external-price";
 import { upsertLot, deleteLots, validateLot, isLotError } from "@/lib/watchlist-lots";
 import { prisma } from "@/lib/db";
 
@@ -11,6 +11,7 @@ export const maxDuration = 300;
 export async function POST(request: NextRequest) {
   const auth = await authenticateBearer(request);
   if (!auth) return NextResponse.json({ error: "Bearer token required or invalid" }, { status: 401 });
+  const _rl = await enforceExternalRateLimit(auth.tokenId); if (_rl) return _rl;
 
   const url = new URL(request.url);
   const skipPriceFetch = url.searchParams.get("skipPriceFetch") === "true";
@@ -74,6 +75,7 @@ export async function POST(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   const auth = await authenticateBearer(request);
   if (!auth) return NextResponse.json({ error: "Bearer token required or invalid" }, { status: 401 });
+  const _rl = await enforceExternalRateLimit(auth.tokenId); if (_rl) return _rl;
 
   const url = new URL(request.url);
   const single = url.searchParams.get("blInventoryId");
