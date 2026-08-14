@@ -24,9 +24,11 @@ export async function GET() {
 
   // DATABASE_URL parsen und Passwort per PGPASSWORD env übergeben — so
   // taucht es weder in `ps auxf` noch in pg_dump-stderr-Warnings auf.
-  const { host, port, pathname, username, password } = new URL(dbUrl);
+  // hostname (nicht host!) — sonst wird der Port in den Hostnamen mit
+  // reingezogen und pg_dump versucht "db:5432" via DNS aufzulösen.
+  const { hostname, port, pathname, username, password } = new URL(dbUrl);
   const dump = spawn("pg_dump", [
-    "--host", host,
+    "--host", hostname,
     "--port", port || "5432",
     "--username", username,
     "--dbname", pathname.slice(1),

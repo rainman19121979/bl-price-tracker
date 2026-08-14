@@ -89,9 +89,10 @@ export async function POST(request: NextRequest) {
   const t0 = Date.now();
   // Parse DATABASE_URL → PGPASSWORD, damit das Passwort nicht als CLI-Arg
   // sichtbar ist und auch nicht in psql-Fehlermeldungen leakt.
-  const { host, port, pathname, username, password } = new URL(dbUrl);
+  // hostname (nicht host!) — host inkludiert den Port.
+  const { hostname, port, pathname, username, password } = new URL(dbUrl);
   const psql = spawn("psql", [
-    "--host", host,
+    "--host", hostname,
     "--port", port || "5432",
     "--username", username,
     "--dbname", pathname.slice(1),
