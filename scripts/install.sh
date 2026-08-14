@@ -295,10 +295,14 @@ setup_env() {
     grep -q "^WEB_PORT=" .env || echo "WEB_PORT=127.0.0.1:3000" >> .env
     ok "NEXTAUTH_URL=https://${DOMAIN}, DOMAIN, EMAIL gesetzt"
   else
-    # Lokal-Modus: an 127.0.0.1 binden (nicht 0.0.0.0)
-    grep -q "^WEB_PORT=" .env || echo "WEB_PORT=127.0.0.1:3000" >> .env
+    # Lokal-Modus: an 0.0.0.0:3000 binden, damit Tailscale-Interface + SSH-Tunnel
+    # + Docker-Host-Netz die App erreichen. Öffentliche Erreichbarkeit muss der
+    # Nutzer via Firewall (UFW/Router/VPS-Provider) blockieren — Standard-VPS-
+    # Setups haben Port 3000 eh nicht offen. Für strikte Loopback-Only:
+    # WEB_PORT=127.0.0.1:3000 in .env setzen.
+    grep -q "^WEB_PORT=" .env || echo "WEB_PORT=3000" >> .env
     # NEXTAUTH_URL bleibt http://localhost:3000 (Default)
-    ok "Web bindet an 127.0.0.1:3000 (nicht von außen erreichbar)"
+    ok "Web bindet an 0.0.0.0:3000 (via Tailscale, SSH-Tunnel oder LAN erreichbar)"
   fi
 
   # BSX-Pfad falls von detect_bricksync gesetzt
