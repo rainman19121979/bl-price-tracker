@@ -67,6 +67,25 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (session.user) {
         session.user.id = token.id;
         session.user.isAdmin = token.isAdmin;
+
+        // Verifiziere dass der User in der DB noch existiert (schützt vor
+        // Zombie-Sessions auf frisch resetteten DBs bzw. gelöschten Accounts).
+        // JWT-Sessions sind self-signed — ohne diesen Check würde ein alter
+        // Cookie auf einer leeren DB als "eingeloggt" gelten.
+        try {
+          const { prisma } = await import("./db");
+          const id = parseInt(token.id as string, 10);
+          if (Number.isFinite(id)) {
+            const exists = await prisma.user.findUnique({
+              where: { id },
+              select: { id: true, isActive: true },
+            });
+            if (!exists || !exists.isActive) {
+              // Session unbrauchbar — Middleware wird zu /login redirecten
+              return null as unknown as typeof session;
+            }
+          }
+        } catch { /* DB down → lieber Session behalten als hart abwürgen */ }
       }
       return session;
     },
