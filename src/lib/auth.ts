@@ -8,6 +8,12 @@ import { prisma } from "./db";
 // runtime), so the Edge bundle stays clean.
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
+  // Self-hosted: der User erreicht die App potentiell über Tailscale-IP,
+  // eigene Domain, LAN-IP oder localhost — nicht immer identisch mit
+  // NEXTAUTH_URL. next-auth v5 blockt sonst mit "UntrustedHost".
+  // Sicher weil wir hinter Tailscale/Caddy/LAN sitzen, kein öffentlicher
+  // Multi-Tenant-Service.
+  trustHost: true,
   providers: [
     Credentials({
       name: "credentials",
