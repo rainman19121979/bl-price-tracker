@@ -446,13 +446,24 @@ Der Kundenname (`customer`) wird bewusst NICHT über die API ausgeliefert (DSGVO
 
 ## Rate Limits & Best Practices
 
-- **BrickLink Tageslimit:** Dein hinterlegtes `dailyLimit` (Standard 5000). Wird geteilt zwischen Crawler, Web-App, externer API und externen Callern die du in Settings als BrickSync-artige Nutzung deklarierst.
-- **Batch statt Einzel:** `POST /price/batch` und `POST /watchlist/lots` mit bis zu 100 Items statt N × GET.
-- **`skipPriceFetch=true`** beim Lot-Push wenn Preise ohnehin per Crawler kommen — spart alle BL-Calls dieses Requests.
-- **`fetchNewParts=false`** beim Inventar-Sync wenn du Preise separat via `/price/batch` holst.
-- **Fresh Data:** Ergebnisse aus dem Cache wenn `lastSoldFetch`/`lastStockFetch` innerhalb `freshDays` liegen. Erhöhe `freshDays` in Settings um mehr Cache-Hits.
-- **`apiUsage` monitoren:** In jeder Response steht `apiUsage.remaining`. Verwende das um vor Bulk-Aktionen zu prüfen ob genug Budget da ist.
-- **Idempotent:** Alle POST-Endpoints sind idempotent — mehrfaches Aufrufen ist unproblematisch (außer BL API-Budget-Verbrauch).
+**Zwei getrennte Limit-Ebenen — beide können 429 zurückliefern:**
+
+**1. Per-Token Request-Rate (dieser API-Layer, seit v0.1.1):**
+- **120 Requests / Minute** pro Bearer-Token (rollierendes 60-Sek-Fenster)
+- **Burst-Schutz: 20 Requests / 5 Sekunden** — schnellere Bursts blocken
+- Beide Buckets pro Token unabhängig. Bei Überschreitung: HTTP 429 mit `Retry-After` Header und JSON-Body `{error, retryAfterSec, limits}`
+- Redis-backed, überlebt keinen Redis-Ausfall (Fail-Open: bei Redis-down werden Requests durchgelassen)
+
+**2. BrickLink API Tageslimit** (dein hinterlegtes `dailyLimit` auf dem BL-API-Key, Standard 1000 — bei BL bis auf 5000 max erhöhbar). Wird geteilt zwischen Crawler, Web-App, externer API und externen Tools die du in Settings deklarierst. Bei Überschreitung: HTTP 429 mit `error: "API daily limit exhausted"`.
+
+**Best Practices:**
+- **Batch statt Einzel:** `POST /price/batch` und `POST /watchlist/lots` mit bis zu 100 Items statt N × GET — spart Rate-Limit-Slots (1 Request statt 100)
+- **`skipPriceFetch=true`** beim Lot-Push wenn Preise ohnehin per Crawler kommen — spart alle BL-Calls dieses Requests
+- **`fetchNewParts=false`** beim Inventar-Sync wenn du Preise separat via `/price/batch` holst
+- **Fresh Data:** Ergebnisse aus dem Cache wenn `lastSoldFetch`/`lastStockFetch` innerhalb `freshDays` liegen. Erhöhe `freshDays` in Settings um mehr Cache-Hits (Default 180 Tage / 6 Monate)
+- **`apiUsage` monitoren:** In jeder Response steht `apiUsage.remaining`. Verwende das um vor Bulk-Aktionen zu prüfen ob genug BL-Budget da ist
+- **Idempotent:** Alle POST-Endpoints sind idempotent — mehrfaches Aufrufen ist unproblematisch (außer BL API-Budget-Verbrauch)
+- **Bei 429 wegen Rate-Limit:** `Retry-After`-Header respektieren. Bei kurzen Bursts einfach `sleep(retryAfterSec)`; bei langen Batch-Jobs die Anzahl der parallelen Requests reduzieren (aus 10-parallel machen 3-parallel)
 
 ---
 
@@ -460,7 +471,30 @@ Der Kundenname (`customer`) wird bewusst NICHT über die API ausgeliefert (DSGVO
 
 Alle Fehler kommen als JSON `{ "error": "...", "apiUsage": {...} }` mit passendem HTTP-Status.
 
-Bei `429 API daily limit exhausted` — warte auf das nächste Rolling-24h-Fenster oder erhöhe `dailyLimit`.
+**Zwei verschiedene 429-Fälle unterscheiden:**
+
+```jsonc
+// Fall 1: dein Bearer-Token hat die Request-Rate überschritten (120/min oder 20/5s Burst)
+HTTP 429  Retry-After: 42
+{
+  "error": "Rate limit exceeded",
+  "retryAfterSec": 42,
+  "limits": { "perMinute": 120, "burst5s": 20 }
+}
+// → warte retryAfterSec Sekunden, dann nochmal
+// → für Bulk-Jobs: Parallelität reduzieren
+```
+
+```jsonc
+// Fall 2: dein BL-Tageslimit (dailyLimit auf dem API-Key) ist aufgebraucht
+HTTP 429
+{
+  "error": "API daily limit exhausted",
+  "apiUsage": { "used": 5000, "external": 0, "limit": 5000, "remaining": 0 }
+}
+// → warte aufs Rolling-24h-Fenster (siehe apiUsage.remaining recovering)
+// → oder erhöhe dailyLimit in Einstellungen (max was BL erlaubt)
+```
 
 Bei `502 BL fetch failed` mit "not found" wird das Part automatisch aus der DB gelöscht (wenn es on-demand angelegt wurde).
 
