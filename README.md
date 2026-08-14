@@ -18,7 +18,7 @@ Gebaut für kleine bis mittlere LEGO-Händler, die **datenbasiert** verkaufen wo
 - **Preise beobachten:** Holt für jedes Teil in deinem Lager, was Konkurrenten aktuell dafür verlangen und zu welchen Preisen es tatsächlich verkauft wurde (6 Monate Historie)
 - **Empfehlungspreise ausrechnen:** Wendet deine eigenen Formeln an (z.B. "5% unter dem Marktmedian" oder "10% Aufschlag auf den 90-Tage-Verkaufsdurchschnitt")
 - **Länder filtern:** Auf Wunsch nur Verkäufer/Käufer aus bestimmten Ländern berücksichtigen (z.B. nur DE-Verkäufer für den deutschen Markt)
-- **Deine Verkäufe tracken:** Import aus BrickSync-Order-Dateien mit KPI-Karten, 12-Monats-Chart und Top-10-Teilen
+- **Deine Verkäufe tracken (optional):** BSX-Order-Dateien aus BrickSync/BrickStore reinschieben — per Ordner-Scan, SMB-Share oder manuellem Upload — und du kriegst KPI-Karten, 12-Monats-Chart und Top-10-Teile. Wenn du die Sales-Übersicht nicht brauchst, kannst du diesen Teil komplett ignorieren
 - **Als BSX exportieren:** 1:1-Kopie deines Bestands mit den neuen Empfehlungspreisen — direkt in BrickStore importierbar
 - **REST-API:** Bearer-Token-Endpoints für externe Tools (Inventar-Manager, Automatisierungen). Details in [API.md](./API.md)
 
@@ -175,7 +175,11 @@ Standard: 6 Monate. Bedeutet: Teile werden alle 6 Monate neu vom Markt abgefragt
 
 **5. Auto-Sync einschalten** (Einstellungen → Auto-Sync)
 
-Holt einmal täglich dein BrickLink-Inventar. Neue Lots werden ergänzt, verschwundene entfernt, Mengenänderungen werden als Verkäufe erkannt.
+Holt einmal täglich dein BrickLink-Inventar. Neue Lots werden ergänzt, verschwundene entfernt.
+
+**6. Inventar sofort holen** — beim ersten Mal willst du nicht bis zum nächsten Scheduler-Tick warten:
+
+Auf `/watchlist` gibt's oben rechts einen **"Sync jetzt"-Button**. Klick drauf → holt sofort dein komplettes BL-Inventar. Bei einem leeren Konto zeigt die Seite außerdem einen blauen **Onboarding-Banner** mit demselben Button und Hinweisen — je nachdem was du noch nicht konfiguriert hast.
 
 Das war's — der Crawler läuft ab jetzt im Hintergrund. Preise landen nach und nach in `/watchlist`.
 
@@ -240,14 +244,27 @@ Das Dashboard rechnet live: **Crawler-Verbrauch + Extern-Schätzung + Rest** = d
 
 ---
 
-## BSX-Order-Import (Verkäufe tracken)
+## BSX-Order-Import (Verkäufe tracken) — optional
 
-Für die `/sales`-Seite (KPI-Karten, 12-Monats-Chart) importiert das Tool BSX-Order-Dateien, die BrickSync automatisch anlegt.
+Die `/sales`-Seite (KPI-Karten, 12-Monats-Chart, Top-10) zeigt deine eigenen Verkäufe. Alles andere im Tool funktioniert **unabhängig davon** — wenn du die Sales-Übersicht nicht brauchst, kannst du diesen Abschnitt komplett überspringen.
 
-**Einrichten:**
+Drei Wege, wie die Orders reinkommen — je nachdem was zu deinem Setup passt:
 
-1. In der UI: Einstellungen → BSX-Ordner → Pfad eintragen (Admin-only)
-2. Der Scheduler scannt diesen Ordner alle 30 Minuten und liest neue Dateien
+### Weg 1: Manueller Upload (einfachster Weg)
+
+Auf `/sales` oben rechts **"BSX-Orders hochladen"** klicken → mehrere `.bsx`-Dateien auf einmal auswählen → fertig. Dedup ist eingebaut: dieselbe Order zweimal hochladen macht nichts kaputt.
+
+Ideal wenn du:
+- BrickSync auf deinem lokalen PC laufen hast und die Server-Anbindung nicht willst
+- BrickSync gar nicht nutzt und BSX-Orders direkt aus BrickStore exportierst
+- Nur ab und zu deinen Umsatz reinschieben willst
+
+### Weg 2: Automatischer Ordner-Scan
+
+Für den vollautomatischen Fall — BrickSync + Server laufen im selben Netz und du willst nix mehr manuell machen:
+
+1. In der UI: Einstellungen → BSX-Import → **"Lokaler Ordner"** → Pfad eintragen (Admin-only)
+2. Der Scheduler scannt alle 30 Minuten und liest neue Dateien
 3. **Nichts wird verändert oder gelöscht** — reiner Lesezugriff
 
 **Netzwerkfreigabe (SMB/NAS) — komplett im Frontend:**
