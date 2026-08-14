@@ -35,11 +35,21 @@ export async function GET(
     return NextResponse.json({ error: "Part not found" }, { status: 404 });
   }
 
+  // Completeness-Filter
+  const completenessParam = searchParams.get("completeness");
+  const validCompl = completenessParam === "C" || completenessParam === "I" || completenessParam === "S" ? completenessParam : null;
+  const isSet = part.itemType === "SET";
+  const effectiveCompleteness = isSet ? (validCompl ?? "C") : null;
+
   // Stock items + own lots in parallel
   interface StockRow { unit_price: number; quantity: number; fetched_at: Date; }
 
-  const stockCf = sellerCountries ? " AND seller_country = ANY($3)" : "";
-  const stockArgs: unknown[] = sellerCountries ? [part.id, condition, sellerCountries] : [part.id, condition];
+  const stockArgs: unknown[] = [part.id, condition];
+  let p = 3;
+  let stockCf = "";
+  if (sellerCountries) { stockCf += ` AND seller_country = ANY($${p++})`; stockArgs.push(sellerCountries); }
+  if (effectiveCompleteness) { stockCf += ` AND completeness = $${p++}`; stockArgs.push(effectiveCompleteness); }
+  else                       { stockCf += ` AND completeness IS NULL`; }
 
   const [items, myLots] = await Promise.all([
     prisma.$queryRawUnsafe<StockRow[]>(

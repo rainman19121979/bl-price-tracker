@@ -52,27 +52,29 @@ export async function GET() {
   // Replaces the previous per-row correlated subquery (30-60s on 10k lots).
   const result = await prisma.$queryRawUnsafe<ValueRow[]>(
     `WITH user_lots AS (
-      SELECT part_id, new_or_used
+      SELECT part_id, new_or_used, completeness
       FROM user_watchlists
       WHERE user_id = $1 AND my_price IS NOT NULL AND my_quantity > 0
     ),
     latest_stock AS (
-      SELECT DISTINCT ON (part_id, new_or_used)
-        part_id, new_or_used, fetched_at
+      SELECT DISTINCT ON (part_id, new_or_used, completeness)
+        part_id, new_or_used, completeness, fetched_at
       FROM price_stock
       WHERE (part_id, new_or_used) IN (SELECT part_id, new_or_used FROM user_lots)
         ${stockCf}
-      ORDER BY part_id, new_or_used, fetched_at DESC
+      ORDER BY part_id, new_or_used, completeness, fetched_at DESC
     ),
     stock_stats AS (
-      SELECT s.part_id, s.new_or_used,
+      SELECT s.part_id, s.new_or_used, s.completeness,
         PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY s.unit_price)::float as median_price,
         (SUM(s.unit_price * s.quantity) / NULLIF(SUM(s.quantity), 0))::float as qty_avg_price
       FROM price_stock s
       JOIN latest_stock ls
-        ON ls.part_id = s.part_id AND ls.new_or_used = s.new_or_used AND ls.fetched_at = s.fetched_at
+        ON ls.part_id = s.part_id AND ls.new_or_used = s.new_or_used
+        AND ls.completeness IS NOT DISTINCT FROM s.completeness
+        AND ls.fetched_at = s.fetched_at
         ${stockCfOuter}
-      GROUP BY s.part_id, s.new_or_used
+      GROUP BY s.part_id, s.new_or_used, s.completeness
     )
     SELECT
       COALESCE(SUM(w.my_price * w.my_quantity), 0)::float as my_value,
@@ -87,10 +89,12 @@ export async function GET() {
         (SUM(unit_price * quantity) / NULLIF(SUM(quantity), 0))::float as qty_avg_price
       FROM price_sales
       WHERE part_id = w.part_id AND new_or_used = w.new_or_used
+        AND completeness IS NOT DISTINCT FROM w.completeness
         AND date_ordered >= $2 ${soldCf}
     ) sold ON true
     LEFT JOIN stock_stats stock
       ON stock.part_id = w.part_id AND stock.new_or_used = w.new_or_used
+      AND stock.completeness IS NOT DISTINCT FROM w.completeness
     WHERE w.user_id = $1
       AND w.my_price IS NOT NULL
       AND w.my_quantity IS NOT NULL
@@ -109,7 +113,7 @@ export async function GET() {
 
   if (pricingRules.length > 0) {
     const lots = await prisma.$queryRawUnsafe<Array<{
-      my_price: number; my_quantity: number; my_cost: number | null; new_or_used: string; sale_rate: number; price_locked: boolean;
+      my_price: number; my_quantity: number; my_cost: number | null; new_or_used: string; completeness: string | null; sale_rate: number; price_locked: boolean;
       item_type: string; color_id: number; category_id: number | null;
       sold_median: number | null; sold_avg: number | null;
       stock_median: number | null; stock_avg: number | null;
@@ -117,30 +121,32 @@ export async function GET() {
       stock_count: number; stock_qty: number;
     }>>(
       `WITH user_lots AS (
-        SELECT part_id, new_or_used
+        SELECT part_id, new_or_used, completeness
         FROM user_watchlists
         WHERE user_id = $1 AND my_price IS NOT NULL AND my_quantity > 0
       ),
       latest_stock AS (
-        SELECT DISTINCT ON (part_id, new_or_used) part_id, new_or_used, fetched_at
+        SELECT DISTINCT ON (part_id, new_or_used, completeness) part_id, new_or_used, completeness, fetched_at
         FROM price_stock
         WHERE (part_id, new_or_used) IN (SELECT part_id, new_or_used FROM user_lots)
           ${stockCf}
-        ORDER BY part_id, new_or_used, fetched_at DESC
+        ORDER BY part_id, new_or_used, completeness, fetched_at DESC
       ),
       stock_stats AS (
-        SELECT s.part_id, s.new_or_used,
+        SELECT s.part_id, s.new_or_used, s.completeness,
           PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY s.unit_price)::float as median_price,
           (SUM(s.unit_price * s.quantity) / NULLIF(SUM(s.quantity), 0))::float as qty_avg_price,
           MIN(s.unit_price)::float as min_price, MAX(s.unit_price)::float as max_price,
           COUNT(*)::int as cnt, COALESCE(SUM(s.quantity), 0)::int as qty
         FROM price_stock s
         JOIN latest_stock ls
-          ON ls.part_id = s.part_id AND ls.new_or_used = s.new_or_used AND ls.fetched_at = s.fetched_at
+          ON ls.part_id = s.part_id AND ls.new_or_used = s.new_or_used
+          AND ls.completeness IS NOT DISTINCT FROM s.completeness
+          AND ls.fetched_at = s.fetched_at
           ${stockCfOuter}
-        GROUP BY s.part_id, s.new_or_used
+        GROUP BY s.part_id, s.new_or_used, s.completeness
       )
-      SELECT w.my_price::float, w.my_quantity, w.my_cost::float, w.new_or_used, w.sale_rate, w.price_locked,
+      SELECT w.my_price::float, w.my_quantity, w.my_cost::float, w.new_or_used, w.completeness, w.sale_rate, w.price_locked,
         p.item_type, p.color_id, p.category_id,
         sold.median_price as sold_median, sold.qty_avg_price as sold_avg,
         stock.median_price as stock_median, stock.qty_avg_price as stock_avg,
@@ -151,11 +157,13 @@ export async function GET() {
       LEFT JOIN LATERAL (
         SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY unit_price)::float as median_price,
           (SUM(unit_price * quantity) / NULLIF(SUM(quantity), 0))::float as qty_avg_price
-        FROM price_sales WHERE part_id = w.part_id AND new_or_used = w.new_or_used AND date_ordered >= $2
-          ${soldCf}
+        FROM price_sales WHERE part_id = w.part_id AND new_or_used = w.new_or_used
+          AND completeness IS NOT DISTINCT FROM w.completeness
+          AND date_ordered >= $2 ${soldCf}
       ) sold ON true
       LEFT JOIN stock_stats stock
         ON stock.part_id = w.part_id AND stock.new_or_used = w.new_or_used
+        AND stock.completeness IS NOT DISTINCT FROM w.completeness
       WHERE w.user_id = $1 AND w.my_price IS NOT NULL AND w.my_quantity > 0`,
       ...queryArgs,
     );
@@ -165,7 +173,7 @@ export async function GET() {
       if (!lot.price_locked) {
         const rule = findMatchingRule(pricingRules, {
           itemType: lot.item_type, condition: lot.new_or_used,
-          colorId: lot.color_id, categoryId: lot.category_id,
+          colorId: lot.color_id, categoryId: lot.category_id, completeness: lot.completeness,
         });
         if (rule) {
           const vars: PricingVars = {

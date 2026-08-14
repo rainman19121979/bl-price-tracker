@@ -13,6 +13,7 @@ export interface PricingRule {
     condition: string  // "*" | "N" | "U"
     colorId: number[]  // [] = all
     categoryId: number[] // [] = all
+    completeness?: string  // "*" | "C" | "I" | "S" — nur bei SETs relevant, "*" default
   }
   formula: string
 }
@@ -22,6 +23,7 @@ export interface PricingItem {
   condition: string
   colorId: number
   categoryId: number | null
+  completeness?: string | null  // "C" | "I" | "S" bei SETs, sonst null
 }
 
 export interface PricingVars {
@@ -37,6 +39,11 @@ export function findMatchingRule(rules: PricingRule[], item: PricingItem): Prici
     if (f.condition !== '*' && f.condition !== item.condition) continue
     if (f.colorId.length > 0 && !f.colorId.includes(item.colorId)) continue
     if (f.categoryId.length > 0 && (item.categoryId === null || !f.categoryId.includes(item.categoryId))) continue
+    // Completeness-Filter: nur bei SETs sinnvoll. "*" oder undef matcht immer,
+    // sonst muss der Wert des Items dem Filter entsprechen.
+    if (f.completeness && f.completeness !== '*') {
+      if (item.completeness !== f.completeness) continue
+    }
     return rule
   }
   return null

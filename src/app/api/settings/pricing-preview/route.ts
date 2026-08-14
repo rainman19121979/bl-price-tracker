@@ -81,15 +81,19 @@ export async function POST(request: Request) {
     whereClauses.push(`p.category_id = ANY($${p++})`);
     args.push(filters.categoryId);
   }
+  if (filters.completeness && filters.completeness !== "*") {
+    whereClauses.push(`w.completeness = $${p++}`);
+    args.push(filters.completeness);
+  }
 
   const lots = await prisma.$queryRawUnsafe<Array<{
     id: number; part_id: number; part_no: string; color_id: number;
     part_name: string | null; color_name: string | null; item_type: string;
-    category_id: number | null; new_or_used: string;
+    category_id: number | null; new_or_used: string; completeness: string | null;
     my_price: number; my_quantity: number; my_cost: number | null;
   }>>(
     `SELECT w.id, w.part_id, p.part_no, p.color_id, p.part_name, p.color_name, p.item_type, p.category_id,
-      w.new_or_used, w.my_price::float, w.my_quantity, w.my_cost::float
+      w.new_or_used, w.completeness, w.my_price::float, w.my_quantity, w.my_cost::float
     FROM user_watchlists w JOIN parts p ON p.id = w.part_id
     WHERE ${whereClauses.join(" AND ")}
     ORDER BY w.my_quantity DESC
@@ -109,12 +113,14 @@ export async function POST(request: Request) {
     const partId = lot.part_id;
     const nou = lot.new_or_used;
 
-    // Sold stats over multiple windows — needs BOTH filters
+    // Sold stats over multiple windows — needs BOTH filters + completeness
     const soldArgs: unknown[] = [partId, nou];
     let sp = 3;
     let cfSold = "";
     if (shippingCountries) { cfSold += ` AND buyer_country = ANY($${sp++})`; soldArgs.push(shippingCountries); }
     if (sellerCountries)   { cfSold += ` AND seller_country = ANY($${sp++})`; soldArgs.push(sellerCountries); }
+    if (lot.completeness) { cfSold += ` AND completeness = $${sp++}`; soldArgs.push(lot.completeness); }
+    else                  { cfSold += ` AND completeness IS NULL`; }
 
     const soldRows = await prisma.$queryRawUnsafe<Array<{
       w7d_median: number | null; w30d_median: number | null; w60d_median: number | null;
@@ -150,7 +156,7 @@ export async function POST(request: Request) {
     );
     const s = soldRows[0];
 
-    // Stock stats — outer JOIN must also filter seller_country
+    // Stock stats — outer JOIN must also filter seller_country + completeness
     const stockArgs: unknown[] = [partId, nou];
     let stp = 3;
     let stockCf = "";
@@ -160,6 +166,15 @@ export async function POST(request: Request) {
       stockCf = ` AND seller_country = ANY($${idx})`;
       stockCfOuter = ` AND st.seller_country = ANY($${idx})`;
       stockArgs.push(sellerCountries);
+    }
+    if (lot.completeness) {
+      const idx = stp++;
+      stockCf += ` AND completeness = $${idx}`;
+      stockCfOuter += ` AND st.completeness = $${idx}`;
+      stockArgs.push(lot.completeness);
+    } else {
+      stockCf += ` AND completeness IS NULL`;
+      stockCfOuter += ` AND st.completeness IS NULL`;
     }
     const stockRows = await prisma.$queryRawUnsafe<Array<{
       median: number | null; avg: number | null;

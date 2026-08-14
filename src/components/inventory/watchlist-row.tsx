@@ -54,7 +54,7 @@ export function WatchlistRow({ item, refreshing, freshDays, onRefresh, onSaleRat
         <div className="flex items-center gap-2">
           <PartImage partNo={item.part.partNo} colorId={item.part.colorId} itemType={item.part.itemType} size="md" />
           <div>
-            <Link href={`/parts/${item.part.partNo}/${item.part.colorId}?condition=${item.newOrUsed}`}
+            <Link href={`/parts/${item.part.partNo}/${item.part.colorId}?condition=${item.newOrUsed}${item.completeness ? `&completeness=${item.completeness}` : ""}`}
               className="font-mono text-sm text-blue-600 hover:text-blue-700">
               {item.part.partNo}
             </Link>
@@ -69,9 +69,27 @@ export function WatchlistRow({ item, refreshing, freshDays, onRefresh, onSaleRat
         )}
       </td>
       <td className="px-3 py-2 text-center">
-        <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
-          item.newOrUsed === "N" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"
-        }`}>{item.newOrUsed === "N" ? "Neu" : "Gebr."}</span>
+        <div className="flex flex-col items-center gap-0.5">
+          <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+            item.newOrUsed === "N" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"
+          }`}>{item.newOrUsed === "N" ? "Neu" : "Gebr."}</span>
+          {item.completeness && (
+            <span
+              className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                item.completeness === "S" ? "bg-purple-100 text-purple-700" :
+                item.completeness === "C" ? "bg-blue-100 text-blue-700" :
+                "bg-orange-100 text-orange-700"
+              }`}
+              title={
+                item.completeness === "S" ? "Sealed (versiegelt in OVP)" :
+                item.completeness === "C" ? "Complete (kompletter Bausatz)" :
+                "Incomplete (unvollständig)"
+              }
+            >
+              {item.completeness === "S" ? "Sealed" : item.completeness === "C" ? "Kompl." : "Unvoll."}
+            </span>
+          )}
+        </div>
       </td>
       <td className="px-3 py-2 text-right font-mono text-sm text-gray-900">
         {myPrice ? myPrice.toFixed(4) : "-"}

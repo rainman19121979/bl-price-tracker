@@ -9,6 +9,7 @@ export interface LotUpsertInput {
   colorId: number
   itemType: 'PART' | 'MINIFIG' | 'SET'
   condition: 'N' | 'U'
+  completeness?: 'C' | 'I' | 'S'  // nur bei SET
   myPrice?: number
   myQuantity?: number
   myCost?: number
@@ -57,6 +58,12 @@ export function validateLot(raw: Record<string, unknown>): { ok: true; lot: LotU
   if (!['PART', 'MINIFIG', 'SET'].includes(itemType)) return { ok: false, error: 'itemType must be PART|MINIFIG|SET' }
   if (!['N', 'U'].includes(condition)) return { ok: false, error: 'condition must be N|U' }
 
+  const completenessRaw = typeof raw.completeness === 'string' ? raw.completeness.toUpperCase() : ''
+  if (completenessRaw && !['C', 'I', 'S'].includes(completenessRaw)) {
+    return { ok: false, error: 'completeness must be C|I|S if provided' }
+  }
+  const completeness = itemType === 'SET' && completenessRaw ? (completenessRaw as 'C' | 'I' | 'S') : undefined
+
   const optional = <T,>(v: unknown, coerce: (x: unknown) => T | null): T | undefined => {
     if (v === undefined || v === null) return undefined
     const c = coerce(v)
@@ -80,6 +87,7 @@ export function validateLot(raw: Record<string, unknown>): { ok: true; lot: LotU
       blInventoryId, partNo,
       colorId, itemType: itemType as 'PART' | 'MINIFIG' | 'SET',
       condition: condition as 'N' | 'U',
+      completeness,
       myPrice: optional(raw.myPrice, num),
       myQuantity: optional(raw.myQuantity, int),
       myCost: optional(raw.myCost, num),
@@ -162,7 +170,7 @@ export async function upsertLot(
   const saved = await prisma.userWatchlist.upsert({
     where: { userId_blInventoryId: { userId, blInventoryId: lot.blInventoryId } },
     create: {
-      userId, partId: part.id, newOrUsed: lot.condition, blInventoryId: lot.blInventoryId,
+      userId, partId: part.id, newOrUsed: lot.condition, completeness: lot.completeness ?? null, blInventoryId: lot.blInventoryId,
       myPrice: priceNum, myQuantity: qtyNum,
       myCost: lot.myCost ?? null,
       description: lot.description ?? null,
@@ -172,7 +180,7 @@ export async function upsertLot(
       changedAt: changed ? new Date() : null,
     },
     update: {
-      partId: part.id, newOrUsed: lot.condition,
+      partId: part.id, newOrUsed: lot.condition, completeness: lot.completeness ?? null,
       myPrice: priceNum, myQuantity: qtyNum, prevQuantity: oldQty,
       myCost: lot.myCost ?? existing?.myCost ?? null,
       description: lot.description ?? existing?.description ?? null,

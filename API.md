@@ -63,20 +63,28 @@ Nutze das um vor größeren Aktionen zu prüfen ob Budget da ist, oder um dein C
 
 Liefert Empfehlungspreis + Markt-Daten für **ein** Teil. Legt Teile bei Bedarf on-demand an; holt frische Daten wenn `last_*_crawl` älter als `freshDays` (User-Setting, default 14) ist.
 
-**Query-Parameter (alle Pflicht):**
+**Query-Parameter:**
 
-| Parameter | Typ | Beispiel |
-|---|---|---|
-| `partNo` | string | `3024` |
-| `colorId` | int | `1` |
-| `itemType` | string | `PART`, `MINIFIG`, `SET` |
-| `condition` | string | `N` (neu), `U` (gebraucht) |
+| Parameter | Pflicht | Typ | Beispiel |
+|---|---|---|---|
+| `partNo` | ✓ | string | `3024` |
+| `colorId` | ✓ | int | `1` |
+| `itemType` | ✓ | string | `PART`, `MINIFIG`, `SET` |
+| `condition` | ✓ | string | `N` (neu), `U` (gebraucht) |
+| `completeness` | nur bei SET | string | `C` (complete, default), `I` (incomplete), `S` (sealed) |
+
+**Hinweis zu SETs:** Bei `itemType=SET` gibt BrickLink für jede Completeness-Stufe komplett andere Preise (sealed 3-5× teurer als used-complete). Wir crawlen jeden Wert getrennt. Wenn du `completeness` nicht mitschickst → default `C`. Bei PART/MINIFIG wird der Parameter ignoriert.
 
 **Beispiel:**
 
 ```bash
+# PART / MINIFIG
 curl -H "Authorization: Bearer $TOKEN" \
   "http://localhost:3000/api/external/price?partNo=3024&colorId=1&itemType=PART&condition=N"
+
+# SET, sealed
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:3000/api/external/price?partNo=75192-1&colorId=0&itemType=SET&condition=N&completeness=S"
 ```
 
 **Response 200:**
@@ -87,6 +95,7 @@ curl -H "Authorization: Bearer $TOKEN" \
   "colorId": 1,
   "itemType": "PART",
   "condition": "N",
+  "completeness": null,
   "suggestedPrice": 0.037,
   "rule": "Parts Neu",
   "stockMedian": 0.0371,
@@ -125,10 +134,13 @@ Bis zu **100 Teile pro Request**. Verarbeitung sequentiell (respektiert BL API-B
 {
   "items": [
     {"partNo": "3024", "colorId": 1, "itemType": "PART", "condition": "N"},
-    {"partNo": "3023", "colorId": 5, "itemType": "PART", "condition": "U"}
+    {"partNo": "3023", "colorId": 5, "itemType": "PART", "condition": "U"},
+    {"partNo": "75192-1", "colorId": 0, "itemType": "SET", "condition": "N", "completeness": "S"}
   ]
 }
 ```
+
+**Pro Item:** dieselben Pflichtfelder wie bei GET `/price`. `completeness` (`C`/`I`/`S`) ist optional und wirkt nur bei `itemType=SET` — default `C`.
 
 **Response 200:**
 
@@ -174,6 +186,16 @@ Bis zu **100 Teile pro Request**. Verarbeitung sequentiell (respektiert BL API-B
       "remarks": "Interne Notiz",
       "saleRate": 10,
       "priceLocked": false
+    },
+    {
+      "blInventoryId": 987654321,
+      "partNo": "75192-1",
+      "colorId": 0,
+      "itemType": "SET",
+      "condition": "N",
+      "completeness": "S",
+      "myPrice": 899.00,
+      "myQuantity": 1
     }
   ]
 }
@@ -181,7 +203,7 @@ Bis zu **100 Teile pro Request**. Verarbeitung sequentiell (respektiert BL API-B
 
 **Pflichtfelder pro Lot:** `blInventoryId`, `partNo`, `colorId`, `itemType`, `condition`
 
-**Optionale Felder:** `myPrice`, `myQuantity`, `myCost` (Lot-Gesamtkosten, NICHT per Stück!), `description`, `remarks`, `saleRate`, `priceLocked`
+**Optionale Felder:** `completeness` (`C`/`I`/`S`, nur bei SET), `myPrice`, `myQuantity`, `myCost` (Lot-Gesamtkosten, NICHT per Stück!), `description`, `remarks`, `saleRate`, `priceLocked`
 
 **Query-Parameter (optional):**
 

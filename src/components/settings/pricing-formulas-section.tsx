@@ -297,6 +297,15 @@ export function PricingFormulasSection({ initialFormulas, onError, onSuccess }: 
                       <option value="N">Neu</option>
                       <option value="U">Gebraucht</option>
                     </select>
+                    <select value={rule.filters.completeness ?? "*"}
+                      onChange={(e) => updateFilters(idx, { completeness: e.target.value })}
+                      title="Completeness — nur relevant wenn Typ=SET (Bei anderen Typen wird der Filter ignoriert)"
+                      className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-700 focus:border-blue-500 focus:outline-none">
+                      <option value="*">Alle Completeness</option>
+                      <option value="C">Complete (SET)</option>
+                      <option value="I">Incomplete (SET)</option>
+                      <option value="S">Sealed (SET)</option>
+                    </select>
                     <input
                       type="text"
                       value={rule.filters.colorId.join(",")}

@@ -55,6 +55,11 @@ interface Sale {
 export default function PartDetailPage() {
   const params = useParams<{ partNo: string; colorId: string }>();
   const searchParams = useSearchParams();
+  const completenessParam = searchParams.get("completeness");
+  const completeness: "C" | "I" | "S" | null =
+    completenessParam === "C" || completenessParam === "I" || completenessParam === "S"
+      ? completenessParam
+      : null;
   const { partNo, colorId } = params;
   const condition = searchParams.get("condition") || "U";
 
@@ -87,13 +92,16 @@ export default function PartDetailPage() {
 
   const fetchPartData = useCallback(async () => {
     try {
+      // Completeness-Query-Param für alle relevanten Endpoints (nur bei SETs
+      // wirksam, sonst serverseitig ignoriert)
+      const compQuery = completeness ? `&completeness=${completeness}` : "";
       // All 5 API calls in parallel
       const [priceRes, historyRes, watchlistRes, stockRes, salesRes] = await Promise.all([
-        fetch(`/api/prices/${partNo}/${colorId}`),
-        fetch(`/api/prices/${partNo}/${colorId}/history?days=365`),
+        fetch(`/api/prices/${partNo}/${colorId}${completeness ? `?completeness=${completeness}` : ""}`),
+        fetch(`/api/prices/${partNo}/${colorId}/history?days=365${compQuery}`),
         fetch(`/api/watchlist?q=${encodeURIComponent(partNo)}&limit=10&condition=${condition}`),
-        fetch(`/api/prices/${partNo}/${colorId}/stock?condition=${condition}`),
-        fetch(`/api/prices/${partNo}/${colorId}/sales?${new URLSearchParams({ page: "1", limit: "30", condition })}`),
+        fetch(`/api/prices/${partNo}/${colorId}/stock?condition=${condition}${compQuery}`),
+        fetch(`/api/prices/${partNo}/${colorId}/sales?${new URLSearchParams({ page: "1", limit: "30", condition })}${compQuery}`),
       ]);
 
       if (priceRes.ok) {
@@ -158,11 +166,12 @@ export default function PartDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [partNo, colorId, condition]);
+  }, [partNo, colorId, condition, completeness]);
 
   const fetchSales = useCallback(async (page: number) => {
     try {
       const params = new URLSearchParams({ page: String(page), limit: "30", condition });
+      if (completeness) params.set("completeness", completeness);
       const res = await fetch(`/api/prices/${partNo}/${colorId}/sales?${params}`);
       if (res.ok) {
         const data = await res.json();
@@ -174,7 +183,7 @@ export default function PartDetailPage() {
     } catch {
       // ignore
     }
-  }, [partNo, colorId, condition]);
+  }, [partNo, colorId, condition, completeness]);
 
   useEffect(() => { fetchPartData(); }, [fetchPartData]);
 
@@ -203,13 +212,39 @@ export default function PartDetailPage() {
               {part?.colorName || `Farbe ID: ${colorId}`}
               {part?.categoryName && ` · ${part.categoryName}`}
             </p>
-            <div className="mt-3 flex gap-2 text-xs">
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
               <span className={`rounded-full px-3 py-1 font-medium bg-${conditionColor}-100 text-${conditionColor}-700`}>
                 {conditionLabel}
               </span>
               <span className="rounded-full bg-gray-100 px-3 py-1 font-medium text-gray-600">
                 {partNo} · {part?.colorName || colorId}
               </span>
+              {/* Completeness-Auswahl nur bei SETs anzeigen */}
+              {part?.itemType === "SET" && (
+                <div className="inline-flex rounded-full border border-gray-200 bg-white p-0.5">
+                  {(["C", "I", "S"] as const).map((c) => {
+                    const active = (completeness ?? "C") === c;
+                    const label = c === "C" ? "Kompl." : c === "I" ? "Unvoll." : "Sealed";
+                    const title = c === "C" ? "Complete (kompletter Bausatz)" : c === "I" ? "Incomplete (unvollständig)" : "Sealed (versiegelt in OVP)";
+                    return (
+                      <Link
+                        key={c}
+                        href={`/parts/${partNo}/${colorId}?condition=${condition}&completeness=${c}`}
+                        title={title}
+                        className={`rounded-full px-3 py-1 font-medium transition-colors ${
+                          active
+                            ? c === "S" ? "bg-purple-100 text-purple-700"
+                              : c === "C" ? "bg-blue-100 text-blue-700"
+                              : "bg-orange-100 text-orange-700"
+                            : "text-gray-500 hover:bg-gray-100"
+                        }`}
+                      >
+                        {label}
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </div>

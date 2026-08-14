@@ -2,6 +2,7 @@ export interface WatchlistItem {
   id: number;
   priority: number;
   newOrUsed: string;
+  completeness: "C" | "I" | "S" | null;
   myPrice: string | null;
   myQuantity: number | null;
   saleRate: number;

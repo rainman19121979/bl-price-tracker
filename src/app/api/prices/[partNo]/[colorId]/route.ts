@@ -29,7 +29,7 @@ interface StockStats {
 export const dynamic = "force-dynamic";
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: { partNo: string; colorId: string } }
 ) {
   const session = await auth();
@@ -46,6 +46,13 @@ export async function GET(
   const { partNo, colorId } = validParams;
   const userId = parseInt(session.user.id);
 
+  // Completeness-Filter: nur relevant bei SETs. C/I/S; wenn nicht gesetzt bei
+  // SETs → Default 'C'. Bei PART/MINIFIG → immer NULL.
+  const completenessParam = new URL(request.url).searchParams.get("completeness");
+  const completenessFilter = completenessParam === "C" || completenessParam === "I" || completenessParam === "S"
+    ? completenessParam
+    : null;
+
   // Phase 1: independent lookups in parallel
   const [part, filters] = await Promise.all([
     findPart(partNo, colorId),
@@ -59,11 +66,17 @@ export async function GET(
   const sixMonthsAgo = new Date();
   sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
 
-  const queryArgs: (number | Date | string[])[] = [part.id, sixMonthsAgo];
+  // Bei SETs mit completeness-Filter: default = 'C' (complete) wenn kein Param
+  const isSet = part.itemType === "SET";
+  const effectiveCompleteness = isSet ? (completenessFilter ?? "C") : null;
+
+  const queryArgs: (number | Date | string[] | string)[] = [part.id, sixMonthsAgo];
   let p = 3;
   let soldCf = "";
   if (shippingCountries) { soldCf += ` AND buyer_country = ANY($${p++})`; queryArgs.push(shippingCountries); }
   if (sellerCountries)   { soldCf += ` AND seller_country = ANY($${p++})`; queryArgs.push(sellerCountries); }
+  if (effectiveCompleteness) { soldCf += ` AND completeness = $${p++}`; queryArgs.push(effectiveCompleteness); }
+  else                       { soldCf += ` AND completeness IS NULL`; }
 
   // Phase 2: sales stats + stock stats in parallel
   const [stats, stockStats] = await Promise.all([
@@ -82,10 +95,15 @@ export async function GET(
       GROUP BY new_or_used`,
       ...queryArgs
     ),
-    prisma.$queryRawUnsafe<StockStats[]>(
-      (() => {
-        const stockCf = sellerCountries ? " AND seller_country = ANY($2)" : "";
-        return `WITH latest AS (
+    (async () => {
+      const stockArgs: (number | string[] | string)[] = [part.id];
+      let q = 2;
+      let stockCf = "";
+      if (sellerCountries) { stockCf += ` AND seller_country = ANY($${q++})`; stockArgs.push(sellerCountries); }
+      if (effectiveCompleteness) { stockCf += ` AND completeness = $${q++}`; stockArgs.push(effectiveCompleteness); }
+      else                       { stockCf += ` AND completeness IS NULL`; }
+      return prisma.$queryRawUnsafe<StockStats[]>(
+        `WITH latest AS (
           SELECT DISTINCT ON (new_or_used) new_or_used, fetched_at
           FROM price_stock WHERE part_id = $1 ${stockCf}
           ORDER BY new_or_used, fetched_at DESC
@@ -99,10 +117,10 @@ export async function GET(
         FROM price_stock ps
         JOIN latest l ON ps.new_or_used = l.new_or_used AND ps.fetched_at = l.fetched_at
         WHERE ps.part_id = $1 ${stockCf}
-        GROUP BY ps.new_or_used`;
-      })(),
-      ...(sellerCountries ? [part.id, sellerCountries] : [part.id])
-    ),
+        GROUP BY ps.new_or_used`,
+        ...stockArgs
+      );
+    })(),
   ]);
 
   const newStats = stats.find((s) => s.new_or_used === "N");
@@ -157,6 +175,7 @@ export async function GET(
     filters: {
       sellerCountries: sellerCountries,
       shippingCountries: shippingCountries,
+      completeness: effectiveCompleteness,  // was gerade angezeigt wird (nur bei SETs)
     },
   });
 }

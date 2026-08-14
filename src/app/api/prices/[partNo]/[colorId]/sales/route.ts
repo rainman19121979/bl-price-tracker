@@ -54,6 +54,10 @@ export async function GET(
   if (sellerCountries) {
     where.sellerCountry = { in: sellerCountries };
   }
+  // Completeness-Filter: default 'C' bei SETs, NULL bei anderen
+  const completenessParam = searchParams.get("completeness");
+  const validCompl = completenessParam === "C" || completenessParam === "I" || completenessParam === "S" ? completenessParam : null;
+  where.completeness = part.itemType === "SET" ? (validCompl ?? "C") : null;
 
   // Sales + count + mySales all in parallel
   const [sales, total, mySales] = await Promise.all([

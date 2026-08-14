@@ -31,6 +31,7 @@ export default function WatchlistPage() {
   const [filterDesc, setFilterDesc] = useState<"" | "with" | "without">("");
   const [filterSale, setFilterSale] = useState<"" | "with" | "without">("");
   const [filterLocked, setFilterLocked] = useState<"" | "yes" | "no">("");
+  const [filterCompleteness, setFilterCompleteness] = useState<"" | "C" | "I" | "S">("");
   const [showFilters, setShowFilters] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [refreshing, setRefreshing] = useState<number | null>(null);
@@ -101,6 +102,7 @@ export default function WatchlistPage() {
       if (filterDesc) params.set("hasDesc", filterDesc);
       if (filterSale) params.set("hasSale", filterSale);
       if (filterLocked) params.set("locked", filterLocked);
+      if (filterCompleteness) params.set("completeness", filterCompleteness);
       if (filterTrend) params.set("trend", filterTrend);
       if (filterDiff) params.set("diff", filterDiff);
 
@@ -141,7 +143,7 @@ export default function WatchlistPage() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, sort, sortDir, filterCondition, filterTrend, filterData, filterDiff, filterType, filterDesc, filterSale, filterLocked]);
+  }, [search, sort, sortDir, filterCondition, filterTrend, filterData, filterDiff, filterType, filterDesc, filterSale, filterLocked, filterCompleteness]);
 
   const fetchValue = useCallback(async () => {
     try {
@@ -385,6 +387,8 @@ export default function WatchlistPage() {
         setFilterSale={setFilterSale}
         filterLocked={filterLocked}
         setFilterLocked={setFilterLocked}
+        filterCompleteness={filterCompleteness}
+        setFilterCompleteness={setFilterCompleteness}
       />
 
       {/* Table */}

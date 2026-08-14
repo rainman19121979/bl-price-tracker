@@ -45,7 +45,7 @@ export async function GET() {
   const items = await prisma.$queryRawUnsafe<Array<{
     part_no: string; color_id: number; item_type: string; part_name: string | null; sale_rate: number; price_locked: boolean;
     color_name: string | null; category_id: number | null; category_name: string | null;
-    new_or_used: string; my_price: number; my_quantity: number; my_cost: number | null;
+    new_or_used: string; completeness: string | null; my_price: number; my_quantity: number; my_cost: number | null;
     bl_inventory_id: number | null; description: string | null; remarks: string | null;
     bulk: number | null; bl_date_added: Date | null;
     sold6m_median: number | null; sold6m_avg: number | null;
@@ -54,38 +54,40 @@ export async function GET() {
     stock_count: number; stock_qty: number;
   }>>(
     `WITH user_lots AS (
-      SELECT part_id, new_or_used FROM user_watchlists WHERE user_id = $1
+      SELECT part_id, new_or_used, completeness FROM user_watchlists WHERE user_id = $1
     ),
     latest_stock AS (
-      SELECT DISTINCT ON (part_id, new_or_used) part_id, new_or_used, fetched_at
+      SELECT DISTINCT ON (part_id, new_or_used, completeness) part_id, new_or_used, completeness, fetched_at
       FROM price_stock
       WHERE (part_id, new_or_used) IN (SELECT part_id, new_or_used FROM user_lots)
         ${stockCf}
-      ORDER BY part_id, new_or_used, fetched_at DESC
+      ORDER BY part_id, new_or_used, completeness, fetched_at DESC
     ),
     stock_stats AS (
-      SELECT s.part_id, s.new_or_used,
+      SELECT s.part_id, s.new_or_used, s.completeness,
         PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY s.unit_price)::float as stock_median,
         (SUM(s.unit_price * s.quantity) / NULLIF(SUM(s.quantity), 0))::float as stock_avg,
         MIN(s.unit_price)::float as stock_min, MAX(s.unit_price)::float as stock_max,
         COUNT(*)::int as stock_count, COALESCE(SUM(s.quantity), 0)::int as stock_qty
       FROM price_stock s
       JOIN latest_stock ls
-        ON ls.part_id = s.part_id AND ls.new_or_used = s.new_or_used AND ls.fetched_at = s.fetched_at
+        ON ls.part_id = s.part_id AND ls.new_or_used = s.new_or_used
+        AND ls.completeness IS NOT DISTINCT FROM s.completeness
+        AND ls.fetched_at = s.fetched_at
         ${stockCfOuter}
-      GROUP BY s.part_id, s.new_or_used
+      GROUP BY s.part_id, s.new_or_used, s.completeness
     ),
     sold_stats AS (
-      SELECT s.part_id, s.new_or_used,
+      SELECT s.part_id, s.new_or_used, s.completeness,
         PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY s.unit_price)::float as sold6m_median,
         (SUM(s.unit_price * s.quantity) / NULLIF(SUM(s.quantity), 0))::float as sold6m_avg
       FROM price_sales s
       WHERE (s.part_id, s.new_or_used) IN (SELECT part_id, new_or_used FROM user_lots)
         AND s.date_ordered >= $2 ${soldCf}
-      GROUP BY s.part_id, s.new_or_used
+      GROUP BY s.part_id, s.new_or_used, s.completeness
     )
     SELECT p.part_no, p.color_id, p.item_type, p.part_name, p.color_name,
-      p.category_id, p.category_name, w.new_or_used,
+      p.category_id, p.category_name, w.new_or_used, w.completeness,
       COALESCE(w.my_price, 0)::float AS my_price,
       COALESCE(w.my_quantity, 0)::int AS my_quantity,
       w.my_cost::float AS my_cost,
@@ -99,7 +101,9 @@ export async function GET() {
     FROM user_watchlists w
     JOIN parts p ON p.id = w.part_id
     LEFT JOIN sold_stats ON sold_stats.part_id = p.id AND sold_stats.new_or_used = w.new_or_used
+      AND sold_stats.completeness IS NOT DISTINCT FROM w.completeness
     LEFT JOIN stock_stats ON stock_stats.part_id = p.id AND stock_stats.new_or_used = w.new_or_used
+      AND stock_stats.completeness IS NOT DISTINCT FROM w.completeness
     WHERE w.user_id = $1 AND w.bl_inventory_id IS NOT NULL`,
     ...params
   );
@@ -120,6 +124,7 @@ export async function GET() {
       const rule = findMatchingRule(pricingRules, {
         itemType: item.item_type, condition: item.new_or_used,
         colorId: item.color_id, categoryId: item.category_id,
+        completeness: item.completeness,
       });
       if (rule) {
         const vars = {
@@ -158,6 +163,10 @@ export async function GET() {
     const saleRate = item.sale_rate || 0;
     xml += `   <Price>${basePrice.toFixed(3)}</Price>\n`;
     xml += `   <Condition>${item.new_or_used}</Condition>\n`;
+    // Completeness nur bei SETs mit tatsächlichem Wert — BrickStore erwartet C|I|S
+    if (item.item_type === "SET" && item.completeness) {
+      xml += `   <Completeness>${item.completeness}</Completeness>\n`;
+    }
     // Cost is per-unit; DB stores lot total → divide by qty
     if (item.my_cost != null && item.my_cost > 0 && item.my_quantity > 0) {
       const costPerUnit = item.my_cost / item.my_quantity;

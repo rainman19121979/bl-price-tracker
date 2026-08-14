@@ -38,6 +38,7 @@ export async function GET() {
       LEFT JOIN LATERAL (
         SELECT SUM(s.quantity) AS qty FROM price_sales s
         WHERE s.part_id = p.id AND s.new_or_used = w.new_or_used
+          AND s.completeness IS NOT DISTINCT FROM w.completeness
           AND s.date_ordered >= $2 ${cf}
       ) sales ON true
       WHERE w.user_id = $1 AND COALESCE(w.my_quantity, 0) > 0 AND NOT w.price_locked
@@ -67,6 +68,7 @@ export async function GET() {
       LEFT JOIN LATERAL (
         SELECT SUM(s.quantity) AS qty, AVG(s.unit_price) AS avg_price FROM price_sales s
         WHERE s.part_id = p.id AND s.new_or_used = w.new_or_used
+          AND s.completeness IS NOT DISTINCT FROM w.completeness
           AND s.date_ordered >= $2 ${cf}
       ) sales ON true
       WHERE w.user_id = $1 AND COALESCE(w.my_quantity, 0) > 0
@@ -117,41 +119,45 @@ export async function GET() {
     }>>(
       `WITH user_lots AS (
         SELECT p.id as part_id, p.part_no, p.color_id, p.part_name, p.color_name, p.item_type, p.category_id,
-          w.new_or_used, (w.my_price::float * (1 - w.sale_rate / 100.0)) AS my_price
+          w.new_or_used, w.completeness, (w.my_price::float * (1 - w.sale_rate / 100.0)) AS my_price
         FROM user_watchlists w JOIN parts p ON p.id = w.part_id
         WHERE w.user_id = $1 AND w.my_price IS NOT NULL AND w.my_price > 0 AND NOT w.price_locked
       ),
       sold_stats AS (
-        SELECT s.part_id, s.new_or_used,
+        SELECT s.part_id, s.new_or_used, s.completeness,
           PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY s.unit_price)::float as sold_median,
           (SUM(s.unit_price * s.quantity) / NULLIF(SUM(s.quantity), 0))::float as sold_avg
         FROM price_sales s
         WHERE s.part_id IN (SELECT part_id FROM user_lots)
           AND s.date_ordered >= $2 ${msoldCf}
-        GROUP BY s.part_id, s.new_or_used
+        GROUP BY s.part_id, s.new_or_used, s.completeness
       ),
       latest_stock AS (
-        SELECT DISTINCT ON (part_id, new_or_used) part_id, new_or_used, fetched_at
+        SELECT DISTINCT ON (part_id, new_or_used, completeness) part_id, new_or_used, completeness, fetched_at
         FROM price_stock
         WHERE part_id IN (SELECT part_id FROM user_lots) ${mstockCf}
-        ORDER BY part_id, new_or_used, fetched_at DESC
+        ORDER BY part_id, new_or_used, completeness, fetched_at DESC
       ),
       stock_stats AS (
-        SELECT ps.part_id, ps.new_or_used,
+        SELECT ps.part_id, ps.new_or_used, ps.completeness,
           PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ps.unit_price)::float as stock_median,
           (SUM(ps.unit_price * ps.quantity) / NULLIF(SUM(ps.quantity), 0))::float as stock_avg
         FROM price_stock ps
-        JOIN latest_stock l ON l.part_id = ps.part_id AND l.new_or_used = ps.new_or_used AND l.fetched_at = ps.fetched_at
+        JOIN latest_stock l ON l.part_id = ps.part_id AND l.new_or_used = ps.new_or_used
+          AND l.completeness IS NOT DISTINCT FROM ps.completeness
+          AND l.fetched_at = ps.fetched_at
           ${mstockCfOuter}
-        GROUP BY ps.part_id, ps.new_or_used
+        GROUP BY ps.part_id, ps.new_or_used, ps.completeness
       )
       SELECT ul.part_id, ul.part_no, ul.color_id, ul.part_name, ul.color_name, ul.item_type, ul.category_id,
-        ul.new_or_used, ul.my_price,
+        ul.new_or_used, ul.completeness, ul.my_price,
         ss.sold_median as sold6m_median, ss.sold_avg as sold6m_avg,
         stk.stock_median, stk.stock_avg
       FROM user_lots ul
       LEFT JOIN sold_stats ss ON ss.part_id = ul.part_id AND ss.new_or_used = ul.new_or_used
-      LEFT JOIN stock_stats stk ON stk.part_id = ul.part_id AND stk.new_or_used = ul.new_or_used`,
+        AND ss.completeness IS NOT DISTINCT FROM ul.completeness
+      LEFT JOIN stock_stats stk ON stk.part_id = ul.part_id AND stk.new_or_used = ul.new_or_used
+        AND stk.completeness IS NOT DISTINCT FROM ul.completeness`,
       ...marginParams
     );
 
@@ -159,6 +165,7 @@ export async function GET() {
       const rule = findMatchingRule(pricingRules, {
         itemType: item.item_type, condition: item.new_or_used,
         colorId: item.color_id, categoryId: item.category_id,
+        completeness: (item as { completeness?: string | null }).completeness ?? null,
       });
       if (!rule) continue;
 

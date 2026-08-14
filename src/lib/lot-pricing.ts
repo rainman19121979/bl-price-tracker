@@ -173,6 +173,7 @@ function computeOne(
     const rule = findMatchingRule(rules, {
       itemType: w.itemType, condition: w.newOrUsed,
       colorId: w.colorId, categoryId: w.categoryId,
+      completeness: w.completeness,
     })
     if (rule) {
       const vars = makeVars(sold, stock, { my_price: w.myPrice, my_quantity: w.myQuantity, my_cost: w.myCost })

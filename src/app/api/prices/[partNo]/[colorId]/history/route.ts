@@ -40,12 +40,20 @@ export async function GET(
   const since = new Date();
   since.setDate(since.getDate() - days);
 
+  // completeness-Filter für SETs (default 'C' wenn nicht gesetzt), NULL bei anderen
+  const completenessParam = searchParams.get("completeness");
+  const validCompl = completenessParam === "C" || completenessParam === "I" || completenessParam === "S" ? completenessParam : null;
+  const isSet = part.itemType === "SET";
+  const effectiveCompleteness = isSet ? (validCompl ?? "C") : null;
+
   const { shippingCountries, sellerCountries } = await getCountryFilters(userId);
   const queryParams: unknown[] = [part.id, since];
   let p = 3;
   let countryFilter = "";
   if (shippingCountries) { countryFilter += ` AND s.buyer_country = ANY($${p++})`; queryParams.push(shippingCountries); }
   if (sellerCountries)   { countryFilter += ` AND s.seller_country = ANY($${p++})`; queryParams.push(sellerCountries); }
+  if (effectiveCompleteness) { countryFilter += ` AND s.completeness = $${p++}`; queryParams.push(effectiveCompleteness); }
+  else                       { countryFilter += ` AND s.completeness IS NULL`; }
 
   interface DailyRow {
     day: Date;

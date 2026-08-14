@@ -24,6 +24,8 @@ interface FilterBarProps {
   setFilterSale: (value: "" | "with" | "without") => void;
   filterLocked: "" | "yes" | "no";
   setFilterLocked: (value: "" | "yes" | "no") => void;
+  filterCompleteness: "" | "C" | "I" | "S";
+  setFilterCompleteness: (value: "" | "C" | "I" | "S") => void;
 }
 
 export function FilterBar({
@@ -48,8 +50,10 @@ export function FilterBar({
   setFilterSale,
   filterLocked,
   setFilterLocked,
+  filterCompleteness,
+  setFilterCompleteness,
 }: FilterBarProps) {
-  const hasActiveFilters = filterCondition || filterTrend || filterData || filterDiff || filterType || filterDesc || filterSale || filterLocked;
+  const hasActiveFilters = filterCondition || filterTrend || filterData || filterDiff || filterType || filterDesc || filterSale || filterLocked || filterCompleteness;
 
   return (
     <>
@@ -130,9 +134,17 @@ export function FilterBar({
             <option value="yes">Gesperrt</option>
             <option value="no">Nicht gesperrt</option>
           </select>
+          <select value={filterCompleteness} onChange={(e) => setFilterCompleteness(e.target.value as typeof filterCompleteness)}
+            className="rounded border border-gray-300 bg-white px-2.5 py-1.5 text-xs text-gray-700 focus:border-blue-500 focus:outline-none"
+            title="Nur relevant bei SETs (C/I/S). Andere Item-Typen ignorieren diesen Filter.">
+            <option value="">Completeness (SETs)</option>
+            <option value="C">Complete</option>
+            <option value="I">Incomplete</option>
+            <option value="S">Sealed</option>
+          </select>
           {hasActiveFilters && (
             <button
-              onClick={() => { setFilterCondition(""); setFilterTrend(""); setFilterData(""); setFilterDiff(""); setFilterType(""); setFilterDesc(""); setFilterSale(""); setFilterLocked(""); }}
+              onClick={() => { setFilterCondition(""); setFilterTrend(""); setFilterData(""); setFilterDiff(""); setFilterType(""); setFilterDesc(""); setFilterSale(""); setFilterLocked(""); setFilterCompleteness(""); }}
               className="rounded border border-gray-300 px-2.5 py-1.5 text-xs text-red-500 hover:bg-red-50"
             >
               Zuruecksetzen

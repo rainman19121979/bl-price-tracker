@@ -25,6 +25,7 @@ export async function GET(request: NextRequest) {
   const hasDescFilter = searchParams.get("hasDesc") || "";
   const hasSaleFilter = searchParams.get("hasSale") || "";
   const lockedFilter = searchParams.get("locked") || "";
+  const completenessFilter = searchParams.get("completeness") || "";
   const diffFilter = searchParams.get("diff") || "";
   const trendFilter = searchParams.get("trend") || "";
   const skip = (page - 1) * limit;
@@ -79,6 +80,11 @@ export async function GET(request: NextRequest) {
     where.priceLocked = true;
   } else if (lockedFilter === "no") {
     where.priceLocked = false;
+  }
+  // Completeness filter (nur bei SETs relevant; Non-SETs haben NULL und werden
+  // durch einen expliziten C/I/S-Filter automatisch ausgeschlossen)
+  if (completenessFilter === "C" || completenessFilter === "I" || completenessFilter === "S") {
+    where.completeness = completenessFilter;
   }
   // Trend filter (cached column)
   if (trendFilter === "up" || trendFilter === "down" || trendFilter === "stable") {
@@ -166,6 +172,7 @@ export async function GET(request: NextRequest) {
       id: w.id,
       priority: w.priority,
       newOrUsed: w.newOrUsed,
+      completeness: w.completeness,   // C|I|S bei SETs, sonst null
       myPrice: w.myPrice,
       myQuantity: w.myQuantity,
       saleRate: w.saleRate ?? 0,
