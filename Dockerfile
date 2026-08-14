@@ -36,7 +36,8 @@ RUN npm run build
 
 ########## runner ##########
 FROM node:20-alpine AS runner
-RUN apk add --no-cache libc6-compat openssl tini
+# postgresql-client bringt pg_dump + psql für Backup/Restore-Endpoints (~10 MB)
+RUN apk add --no-cache libc6-compat openssl tini postgresql-client
 WORKDIR /app
 
 ENV NODE_ENV=production

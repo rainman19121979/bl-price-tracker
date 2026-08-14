@@ -9,6 +9,7 @@ import { PricingFormulasSection } from "@/components/settings/pricing-formulas-s
 import { ApiTokensSection } from "@/components/settings/api-tokens-section";
 import { BsxImportSection, type BsxSourceState } from "@/components/settings/bsx-import-section";
 import { AdminSection } from "@/components/settings/admin-section";
+import { BackupSection } from "@/components/settings/backup-section";
 import { useSession } from "next-auth/react";
 import type { PricingRule } from "@/lib/pricing-engine";
 
@@ -362,6 +363,10 @@ export default function SettingsPage() {
 
       {isAdmin && currentUserId > 0 && (
         <AdminSection currentUserId={currentUserId} onError={setError} onSuccess={setSuccess} />
+      )}
+
+      {isAdmin && (
+        <BackupSection onError={setError} onSuccess={setSuccess} />
       )}
 
     </div>
