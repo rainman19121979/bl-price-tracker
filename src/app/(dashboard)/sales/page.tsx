@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { Loader2, Receipt, Search } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Loader2, Receipt, Search, Upload, Check, AlertTriangle } from "lucide-react";
 import { formatEur, formatDate } from "@/lib/formatters";
 
 interface Kpi { revenue: number; qty: number; orders: number; itemLines: number }
@@ -35,6 +35,14 @@ export default function SalesPage() {
   const [offset, setOffset] = useState(0);
   const LIMIT = 100;
 
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadResult, setUploadResult] = useState<{
+    ok: boolean; filesProcessed?: number; ordersProcessed?: number;
+    itemsImported?: number; itemsSkipped?: number; partsCreated?: number;
+    errorCount?: number; error?: string;
+  } | null>(null);
+
   useEffect(() => {
     const t = setTimeout(() => { setDebouncedSearch(search); setOffset(0); }, 300);
     return () => clearTimeout(t);
@@ -55,17 +63,81 @@ export default function SalesPage() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  const uploadFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setUploading(true); setUploadResult(null);
+    try {
+      const form = new FormData();
+      for (const f of Array.from(files)) form.append("files", f);
+      const res = await fetch("/api/sales/upload", { method: "POST", body: form });
+      const data = await res.json();
+      setUploadResult({ ok: res.ok, ...data });
+      if (res.ok) fetchData();  // refresh list
+    } catch {
+      setUploadResult({ ok: false, error: "Netzwerkfehler" });
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
   const maxMonthlyRevenue = data?.monthly.length
     ? Math.max(...data.monthly.map(m => m.revenue), 1)
     : 1;
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <Receipt className="h-6 w-6 text-gray-500" />
-        <h1 className="text-2xl font-bold text-gray-900">Verkäufe</h1>
-        {data && <span className="text-sm text-gray-500">· {data.pagination.total.toLocaleString("de-DE")} Einträge</span>}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <Receipt className="h-6 w-6 text-gray-500" />
+          <h1 className="text-2xl font-bold text-gray-900">Verkäufe</h1>
+          {data && <span className="text-sm text-gray-500">· {data.pagination.total.toLocaleString("de-DE")} Einträge</span>}
+        </div>
+        <div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".bsx"
+            multiple
+            className="hidden"
+            onChange={(e) => uploadFiles(e.target.files)}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+            className="flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+            BSX-Orders hochladen
+          </button>
+        </div>
       </div>
+
+      {uploadResult && (
+        <div className={`flex items-start gap-2 rounded-lg border p-3 text-sm ${
+          uploadResult.ok
+            ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+            : "border-red-200 bg-red-50 text-red-900"
+        }`}>
+          {uploadResult.ok ? <Check className="mt-0.5 h-4 w-4 text-emerald-600" /> : <AlertTriangle className="mt-0.5 h-4 w-4 text-red-600" />}
+          <div className="flex-1">
+            {uploadResult.ok ? (
+              <>
+                <div className="font-medium">
+                  {uploadResult.filesProcessed} Datei{uploadResult.filesProcessed !== 1 ? "en" : ""} verarbeitet
+                </div>
+                <div className="mt-0.5 text-xs">
+                  {uploadResult.itemsImported} neue Items · {uploadResult.itemsSkipped} bereits da · {uploadResult.partsCreated} neue Parts
+                  {uploadResult.errorCount && uploadResult.errorCount > 0 ? ` · ${uploadResult.errorCount} Fehler` : ""}
+                </div>
+              </>
+            ) : (
+              <div>{uploadResult.error || "Upload fehlgeschlagen"}</div>
+            )}
+          </div>
+          <button onClick={() => setUploadResult(null)} className="text-current opacity-50 hover:opacity-100">×</button>
+        </div>
+      )}
 
       {loading && !data && (
         <div className="flex items-center gap-2 text-sm text-gray-500">

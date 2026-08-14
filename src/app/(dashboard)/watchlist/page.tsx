@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
-  Upload, Download, Loader2, Package,
+  Upload, Download, Loader2, Package, RefreshCw, Sparkles,
   ArrowUp, ArrowDown,
 } from "lucide-react";
 import type { WatchlistItem, SortField, SortDir } from "@/types/watchlist";
@@ -42,6 +42,32 @@ export default function WatchlistPage() {
   } | null>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const pageRef = useRef(1);
+
+  // Onboarding + Sync-Now state
+  const [syncing, setSyncing] = useState(false);
+  const [hasApiKey, setHasApiKey] = useState<boolean | null>(null);
+  const [autoSyncOn, setAutoSyncOn] = useState<boolean | null>(null);
+
+  const doSyncNow = async () => {
+    setSyncing(true); setMessage(null);
+    try {
+      const res = await fetch("/api/inventory/sync-now", { method: "POST" });
+      const data = await res.json();
+      if (res.ok) {
+        setMessage({ type: "success", text: `Sync fertig in ${Math.round((data.durationMs ?? 0) / 1000)}s: +${data.added ?? 0} neu, ${data.updated ?? 0} aktualisiert, -${data.removed ?? 0} entfernt` });
+        // Full reload of watchlist since inventory changed
+        pageRef.current = 1;
+        setItems([]);
+        setHasMore(true);
+      } else {
+        setMessage({ type: "error", text: data.error || "Sync fehlgeschlagen" });
+      }
+    } catch {
+      setMessage({ type: "error", text: "Netzwerkfehler" });
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   // Map frontend sort fields to API sort params
   const sortApiMap: Record<SortField, string> = {
@@ -88,6 +114,24 @@ export default function WatchlistPage() {
         setTotal(data.pagination.total);
         setHasMore(page < data.pagination.totalPages);
         pageRef.current = page;
+
+        // Onboarding checks: only when nothing is there and page 1
+        if (page === 1 && data.pagination.total === 0) {
+          try {
+            const [keysRes, settingsRes] = await Promise.all([
+              fetch("/api/keys"),
+              fetch("/api/settings"),
+            ]);
+            if (keysRes.ok) {
+              const kd = await keysRes.json();
+              setHasApiKey((kd.keys?.length ?? 0) > 0);
+            }
+            if (settingsRes.ok) {
+              const sd = await settingsRes.json();
+              setAutoSyncOn(!!sd.autoSyncInventory);
+            }
+          } catch { /* ignore */ }
+        }
       }
     } catch {
       // ignore
@@ -239,6 +283,15 @@ export default function WatchlistPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={doSyncNow}
+            disabled={syncing}
+            title="Inventar von BrickLink neu holen"
+            className="flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+          >
+            {syncing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+            {syncing ? "Synchronisiere…" : "Sync jetzt"}
+          </button>
           <a href="/api/watchlist/export-bsx" download
             className="flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50">
             <Download size={14} />
@@ -251,6 +304,54 @@ export default function WatchlistPage() {
           </label>
         </div>
       </div>
+
+      {/* Onboarding-Banner: nur wenn leere Watchlist + wir wissen dass User keinen Sync gemacht hat */}
+      {total === 0 && !loading && hasApiKey !== null && (
+        <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+          <div className="flex items-start gap-3">
+            <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-blue-600" />
+            <div className="flex-1">
+              <h3 className="font-semibold text-blue-900">Los geht&apos;s — noch keine Teile geladen</h3>
+              {!hasApiKey ? (
+                <>
+                  <p className="mt-1 text-sm text-blue-800">
+                    Erst musst du deinen BrickLink-API-Key eintragen, damit wir dein Inventar holen können.
+                  </p>
+                  <a href="/settings" className="mt-3 inline-block rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
+                    Zu Einstellungen → API-Keys
+                  </a>
+                </>
+              ) : (
+                <>
+                  <p className="mt-1 text-sm text-blue-800">
+                    Wir können jetzt dein BrickLink-Inventar holen. Zwei Wege:
+                  </p>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={doSyncNow}
+                      disabled={syncing}
+                      className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                      Jetzt einmalig holen
+                    </button>
+                    {autoSyncOn === false && (
+                      <a href="/settings" className="rounded-lg border border-blue-300 bg-white px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100">
+                        Oder Auto-Sync in Einstellungen einschalten
+                      </a>
+                    )}
+                    {autoSyncOn === true && (
+                      <span className="text-xs text-blue-700">
+                        Auto-Sync ist AN — läuft spätestens beim nächsten Scheduler-Tick (~5 Min).
+                      </span>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Inventory Value */}
       <InventoryValueCards value={inventoryValue} />
