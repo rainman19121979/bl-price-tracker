@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
 
-const publicPaths = ["/login", "/register", "/api/auth", "/api/external", "/api/setup"];
+const publicPaths = ["/login", "/register", "/api/auth", "/api/external", "/api/setup", "/api/version"];
 
 // Paths that should never go through auth middleware
 function isStaticAsset(pathname: string): boolean {

@@ -448,6 +448,8 @@ docker compose pull               # Neustes Image von ghcr.io ziehen (~30 Sek)
 docker compose up -d              # Container mit neuem Image starten
 ```
 
+**Update-Anzeige in der App:** In der Sidebar unten steht die aktuelle Version. Sobald auf GitHub eine neuere Release veröffentlicht ist, erscheint neben der Versionsnummer ein pulsierender gelber Punkt mit dem Text "Update vX.Y.Z". Klick darauf öffnet ein Popup mit Release-Notes-Link und dem fertigen Update-Befehl zum Kopieren. Der Check läuft admin-seitig alle 6 Stunden gegen die GitHub-API (Redis-cached, kein Traffic-Impact).
+
 Migrations werden beim Start automatisch angewendet.
 
 **Lokal bauen statt GHCR-Image nutzen** (nur für Devs / Forks):

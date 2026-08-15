@@ -86,6 +86,8 @@ BrickLink API (OAuth 1.0, worldwide -- no `country_code`) -> Crawler loop (dynam
 - **`src/lib/formatters.ts`** -- Shared formatting utilities: `timeAgo`, `dataAgeColor`, `fmt`, `formatEur`, `formatDate`, `formatDiffPercent`. Always import from here instead of duplicating formatting logic.
 - **`src/lib/user-settings.ts`** -- Per-user shipping country filter.
 - **`src/lib/price-daily-rollup.ts`** -- `recomputePriceDaily(keys)`: rechnet Aggregat-Zeilen in `price_daily` fuer betroffene `(partId,date,newOrUsed)`-Kombinationen neu aus `price_sales`. Nur Non-SET-Parts (SETs bleiben ausserhalb des daily-Caches, wie im Crawler). Genutzt vom Preisdaten-Import.
+- **`src/lib/semver-compare.ts`** -- `isVersionNewer(latest, current)`: minimaler Semver-Vergleich fuer die Update-Anzeige. Kein npm-`semver`-Package, ~30 Zeilen.
+- **`/api/version` (public) + `/api/version/check` (admin-only)** -- Version-Endpoints fuer die Update-Anzeige. `check` cached 6h in Redis, ruft GitHub Releases API, timeout 5s, fail-open (UI zeigt nur aktuelle Version wenn GitHub down). Sidebar-Component `src/components/layout/sidebar.tsx` fetcht beim Mount + jede Stunde, zeigt Update-Badge wenn `hasUpdate=true`, oeffnet `UpdateModal` mit Copy-Command.
 - **`src/lib/encryption.ts`** -- AES-256-GCM encrypt/decrypt for API key secrets.
 - **`src/lib/bricklink-api.ts`** -- BrickLink OAuth 1.0 client with getPriceGuide and getInventory.
 - **`src/lib/api-usage.ts`** -- Rolling 24h API call tracking: getUsage, logApiCall, cleanupOldLogs, getExternalCallCount (estimates external calls from per-key `externalCalls` JSON).
