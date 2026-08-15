@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/db";
-import { isRegistrationOpen } from "@/lib/app-settings";
 import { registerSchema } from "@/lib/validators";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * Bootstrap-only: diese Route ist nur aktiv SOLANGE die DB null User hat.
+ * Danach 404 — Selbst-Registrierung ist dauerhaft dicht (BL API TOS).
+ * Der erste erfolgreiche Register-Call legt den Admin-Account an.
+ */
 export async function POST(request: NextRequest) {
   try {
     // Rate limit: 5 register attempts per IP per hour
@@ -16,6 +20,13 @@ export async function POST(request: NextRequest) {
         { error: `Zu viele Registrierungs-Versuche. Warte ${rl.resetSec}s.` },
         { status: 429 }
       );
+    }
+
+    // Bootstrap-Gate: sobald ein User existiert, ist die Route tot.
+    // Check ausserhalb der Transaktion — der finale Race-safe Check
+    // steht drinnen mit Advisory-Lock.
+    if (await prisma.user.count() > 0) {
+      return NextResponse.json({ error: "Not Found" }, { status: 404 });
     }
 
     const body = await request.json();
@@ -36,23 +47,18 @@ export async function POST(request: NextRequest) {
     const passwordHash = await bcrypt.hash(password, 12);
 
     // Ganze Registrierung in einer Serializable-Transaktion + Postgres-
-    // Advisory-Lock (arbitrary 4711). Verhindert:
-    //   - Race #1: zwei parallele Registrierungen mit derselben Email/Username
-    //   - Race #2: zwei parallele First-User-Registrierungen werden beide Admin
-    // Advisory-Lock ist prozess-scoped und serialisiert alle Register-Requests
-    // sequenziell — bei einem Register/Sek kein Problem.
+    // Advisory-Lock (arbitrary 4711). Verhindert dass zwei parallele
+    // First-User-Registrierungen beide Admin werden. Race-safe re-check
+    // von userCount innerhalb der Transaktion.
     try {
-      const result = await prisma.$transaction(async (tx) => {
+      await prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(4711)`;
 
         const userCount = await tx.user.count();
-        const isFirstUser = userCount === 0;
-
-        if (!isFirstUser) {
-          const open = await isRegistrationOpen();
-          if (!open) {
-            throw new Error("REGISTRATION_CLOSED");
-          }
+        if (userCount > 0) {
+          // Ein anderer Request hat waehrend wir gewartet haben den ersten
+          // User angelegt — wir sind aus dem Bootstrap raus.
+          throw new Error("BOOTSTRAP_CLOSED");
         }
 
         const [existingEmail, existingUsername] = await Promise.all([
@@ -68,30 +74,23 @@ export async function POST(request: NextRequest) {
             email,
             username,
             passwordHash,
-            isAdmin: isFirstUser,
-            crawlerEnabled: isFirstUser,
+            isAdmin: true,
+            crawlerEnabled: true,
           },
         });
-
-        return { isFirstUser };
       }, { isolationLevel: "Serializable" });
 
       return NextResponse.json(
         {
-          message: result.isFirstUser
-            ? "Admin-Konto erstellt. Bitte anmelden."
-            : "Konto erfolgreich erstellt.",
-          isFirstUser: result.isFirstUser,
+          message: "Admin-Konto erstellt. Bitte anmelden.",
+          isFirstUser: true,
         },
         { status: 201 }
       );
     } catch (txError) {
       const msg = txError instanceof Error ? txError.message : String(txError);
-      if (msg === "REGISTRATION_CLOSED") {
-        return NextResponse.json(
-          { error: "Registrierung ist derzeit geschlossen." },
-          { status: 403 }
-        );
+      if (msg === "BOOTSTRAP_CLOSED") {
+        return NextResponse.json({ error: "Not Found" }, { status: 404 });
       }
       if (msg === "DUPLICATE_CREDENTIALS") {
         return NextResponse.json(

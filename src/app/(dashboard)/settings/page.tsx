@@ -10,6 +10,7 @@ import { ApiTokensSection } from "@/components/settings/api-tokens-section";
 import { BsxImportSection, type BsxSourceState } from "@/components/settings/bsx-import-section";
 import { AdminSection } from "@/components/settings/admin-section";
 import { BackupSection } from "@/components/settings/backup-section";
+import { PricesExportImportSection } from "@/components/settings/prices-export-import-section";
 import { useSession } from "next-auth/react";
 import type { PricingRule } from "@/lib/pricing-engine";
 
@@ -367,6 +368,10 @@ export default function SettingsPage() {
 
       {isAdmin && (
         <BackupSection onError={setError} onSuccess={setSuccess} />
+      )}
+
+      {isAdmin && (
+        <PricesExportImportSection onError={setError} onSuccess={setSuccess} />
       )}
 
     </div>

@@ -21,21 +21,12 @@ interface Props {
 }
 
 export function AdminSection({ currentUserId, onError, onSuccess }: Props) {
-  const [regOpen, setRegOpen] = useState<boolean | null>(null);
   const [users, setUsers] = useState<UserRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [regSaving, setRegSaving] = useState(false);
 
   const fetchAll = useCallback(async () => {
     try {
-      const [settingsRes, usersRes] = await Promise.all([
-        fetch("/api/admin/settings"),
-        fetch("/api/admin/users"),
-      ]);
-      if (settingsRes.ok) {
-        const data = await settingsRes.json();
-        setRegOpen(data.registrationOpen);
-      }
+      const usersRes = await fetch("/api/admin/users");
       if (usersRes.ok) {
         const data = await usersRes.json();
         setUsers(data.users || []);
@@ -45,25 +36,6 @@ export function AdminSection({ currentUserId, onError, onSuccess }: Props) {
   }, []);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
-
-  const toggleRegistration = async () => {
-    setRegSaving(true);
-    try {
-      const res = await fetch("/api/admin/settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ registrationOpen: !regOpen }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setRegOpen(data.registrationOpen);
-        onSuccess(data.registrationOpen ? "Registrierung geöffnet" : "Registrierung geschlossen");
-      } else {
-        onError("Fehler beim Umstellen");
-      }
-    } catch { onError("Netzwerkfehler"); }
-    finally { setRegSaving(false); }
-  };
 
   const updateUser = async (id: number, patch: { isAdmin?: boolean; isActive?: boolean }) => {
     try {
@@ -111,38 +83,11 @@ export function AdminSection({ currentUserId, onError, onSuccess }: Props) {
         <div className="flex-1">
           <h2 className="text-lg font-semibold text-gray-900">Benutzer-Verwaltung (Admin)</h2>
           <p className="mt-0.5 text-sm text-gray-500">
-            Neue Nutzer anlegen lassen (Registrierung öffnen), Bestandsnutzer sperren oder Admin-Rechte vergeben.
+            Bestandsnutzer sperren, Admin-Rechte vergeben oder löschen. Selbst-Registrierung fremder User ist per Design geschlossen (BrickLink API TOS).
           </p>
         </div>
       </div>
 
-      {/* Registration Toggle */}
-      <div className="mt-4 flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 p-4">
-        <div>
-          <div className="text-sm font-medium text-gray-900">
-            {regOpen ? "Registrierung ist OFFEN" : "Registrierung ist GESCHLOSSEN"}
-          </div>
-          <div className="mt-0.5 text-xs text-gray-500">
-            {regOpen
-              ? "Neue User können sich unter /register selbst anmelden. Wenn alle da sind, wieder schließen."
-              : "Kein Fremder kann sich anmelden. Zum Einladen: hier öffnen, User macht /register, dann wieder schließen."}
-          </div>
-        </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={!!regOpen}
-          disabled={regSaving}
-          onClick={toggleRegistration}
-          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 disabled:opacity-50 ${
-            regOpen ? "bg-purple-600" : "bg-gray-300"
-          }`}
-        >
-          <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${regOpen ? "translate-x-5" : "translate-x-0"}`} />
-        </button>
-      </div>
-
-      {/* User list */}
       <div className="mt-4">
         <div className="mb-2 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-gray-800">{users.length} Nutzer</h3>

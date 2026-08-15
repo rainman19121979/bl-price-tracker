@@ -157,7 +157,7 @@ Beim ersten Start baut sich das Image, richtet Datenbank + Redis ein und startet
 
 ### Erster Login
 
-Beim ersten Aufruf leitet die Login-Seite auf `/register` — leg dir einen Account an. Der **erste Account wird automatisch Admin** und kann später weitere User freigeben.
+Beim ersten Aufruf leitet die Login-Seite einmalig auf `/register` — leg dir dort dein **Admin-Konto** an. Danach ist die Selbst-Registrierung dauerhaft geschlossen (`/register` ist per Design nur erreichbar solange null User in der DB stehen). Die Instanz ist für den Betrieb durch **eine** Person / einen Haushalt / einen BrickLink-Store gedacht — mehrere fremde BL-Accounts an einer Instanz sind laut BrickLink API TOS nicht zulässig.
 
 ---
 
@@ -201,6 +201,8 @@ Standard: 6 Monate. Bedeutet: Teile werden alle 6 Monate neu vom Markt abgefragt
 **5. Auto-Sync einschalten** (Einstellungen → Auto-Sync)
 
 Holt einmal täglich dein BrickLink-Inventar. Neue Lots werden ergänzt, verschwundene entfernt.
+
+> **History bleibt erhalten:** Wenn ein Lot beim Sync aus deiner Watchlist verschwindet (weil du es im Store gelöscht oder komplett verkauft hast), wird nur der Watchlist-Eintrag entfernt — die kompletten Preis- und Verkaufsdaten aus 6 Monaten BL-Historie **bleiben in der Datenbank** und hängen am Teil selbst, nicht an deinem Lot. Legst du dasselbe Teil (gleiche Part-Nr + Farbe + Zustand) später wieder in deinen Store, taucht es beim nächsten Sync mit **kompletter alter History** wieder auf — Chart, Medians, Trend sind sofort da, kein Neu-Crawl nötig.
 
 **6. Inventar sofort holen** — beim ersten Mal willst du nicht bis zum nächsten Scheduler-Tick warten:
 
@@ -353,7 +355,7 @@ NEXTAUTH_URL=https://tracker.deine-domain.de
 
 Sonst funktionieren Login-Cookies nicht. Nach Änderung: `docker compose up -d`.
 
-**4. Registrierung schließen sobald deine User da sind.** Standardmäßig ist `/register` offen und jeder mit deiner URL kann sich anmelden. Als Admin schließen: unter `/settings` → Registrierung ausschalten (nutzt Redis-Flag, kein Neustart nötig).
+**4. Selbst-Registrierung ist per Design geschlossen.** Nach dem allerersten Aufruf (bei dem du dein Admin-Konto anlegst) wird `/register` dauerhaft 404 — kein Fremder kann sich registrieren, egal ob deine URL im Netz kursiert. Die Instanz ist für **eine** Person / einen BL-Store gedacht (siehe [NOTICE.md](./NOTICE.md)). Willst du zusätzliche User anlegen: aktuell nur direkt in der DB (`psql`) oder per Prisma-Studio, ein Admin-UI dafür ist bewusst nicht dabei.
 
 **5. SSH-Härtung.** Passwort-Login raus, nur Key-basiert:
 
@@ -383,12 +385,23 @@ Für die App selbst: `git pull && docker compose up -d --build` — kein Auto-Up
 - Middleware blockt alle nicht-öffentlichen Routen ohne Session
 
 **Was ich NICHT empfehle:**
-- Öffentliche Registrierung dauerhaft offen lassen
 - Ohne HTTPS betreiben (Passwörter im Klartext übers Netz)
 - Port 3000 direkt exponieren
 - Ohne Backups laufen lassen (`docker exec pricetracker-db-1 pg_dump ...` in Cronjob)
 
-Wenn du das umsetzt, ist der VPS-Betrieb genauso sicher wie andere selbstgehostete Web-Anwendungen — nicht bank-grade, aber solide für ein Ein-Personen-Tool oder eine kleine Nutzergruppe.
+Wenn du das umsetzt, ist der VPS-Betrieb genauso sicher wie andere selbstgehostete Web-Anwendungen — nicht bank-grade, aber solide für ein Ein-Personen-Tool.
+
+### Wenn du die Instanz doch für andere zugänglich machen willst
+
+Diese App ist **für den persönlichen Selbst-Host konzipiert** — eine Person / ein BrickLink-Store pro Instanz. Wenn du sie trotzdem für andere Nutzer öffnest (Community-Instanz, Familie mit mehreren BL-Stores, kleine Nutzergruppe), musst du selbst dafür sorgen dass die **BrickLink API Terms of Use** für Publikums-Anwendungen erfüllt sind:
+
+- **Attribution-Notice sichtbar in der UI** — der exakte Wortlaut steht in [NOTICE.md](./NOTICE.md): *"The term 'BrickLink' is a trademark of the LEGO Group BrickLink. This application uses the BrickLink API but is not endorsed or certified by LEGO BrickLink, Inc."*
+- **Kontakt-Email prominent anzeigen** für Third-Party-Anfragen
+- **Terms of Service + Privacy Policy** in visible location verlinken
+- Jeder Nutzer muss **eigener aktiver BrickLink-Seller** sein mit eigenen API-Zugangsdaten — Preisdaten dürfen nicht zwischen fremden BL-Accounts geteilt werden
+- Das Preisdaten-Export/Import-Feature ist ausschließlich für den eigenen Instanz-Umzug gedacht, nicht zum Teilen mit Dritten
+
+Bei einer echten Multi-User-Öffnung übernimmst **du** als Betreiber die Verantwortung diese Klauseln in der UI umzusetzen — das Tool selbst wird bewusst nur mit dem für den Solo-Betrieb nötigen Minimum ausgeliefert.
 
 ---
 
@@ -400,6 +413,17 @@ Als **Admin** unter Einstellungen → "Backup & Restore":
 - **Restore hochladen** — SQL-Datei per Upload einspielen. Fragt nach Bestätigung (`ERSETZEN` tippen), ersetzt komplett die aktuelle DB, loggt dich danach automatisch aus.
 
 **Wichtig — BrickLink-Nutzungsbedingungen beachten:** Die Backup-Datei enthält Preis-, Verkaufs- und Angebots-Daten aus der BrickLink-API. Laut BrickLink API Terms of Use darfst du **diese Daten nicht an Dritte weitergeben, veröffentlichen oder verkaufen**. Das Backup ist ausschließlich für deinen eigenen Wiederherstellungs-Zweck. Wenn du das Tool jemandem anderen zur Nutzung überlässt, muss diese Person einen eigenen BrickLink-Account und eigene API-Zugangsdaten benutzen — geteilte Nutzung mit einem BL-Account ist nicht erlaubt. Siehe [NOTICE.md](./NOTICE.md).
+
+### Preisdaten-only Export/Import (für Instanz-Umzug)
+
+Direkt unter Backup & Restore in den Einstellungen: **Preisdaten Export / Import**. Ein schmalerer Export der **nur** die Markt-Tabellen enthält (Parts + Sales + Stock + Daily-Rollups) — keine User, keine Watchlist, keine API-Keys.
+
+- **Exportieren** — NDJSON-Datei zum Download. Bei einer aktiv genutzten Instanz oft mehrere hundert MB, aber das Streaming-Format macht daraus kein RAM-Problem.
+- **Importieren** — additiver Merge: bereits vorhandene Zeilen bleiben unangetastet (Dedup-Index mit `NULLS NOT DISTINCT` beachtet auch die completeness-Dimension bei SETs), nur echt neue Zeilen kommen dazu. Die Daily-Rollups werden für alle betroffenen Kombinationen anschließend aus den Sales neu berechnet — konsistente Charts sofort, kein "warten bis der nächste Crawler-Lauf den Cache rechnet".
+
+Zweck: Instanz-Umzug (VPS → Raspberry Pi), Merge zwischen deinen eigenen Instanzen, Datenrettung nach Neuinstallation ohne vollständigen SQL-Dump zurückzuspielen.
+
+**Auch hier gilt:** Die exportierten Daten stammen aus der BrickLink-API. Weitergabe an Dritte ist laut BrickLink API TOS unzulässig — der Export ist ausschließlich für den eigenen Instanz-Umzug oder den Merge zwischen den **eigenen** Instanzen gedacht.
 
 ---
 

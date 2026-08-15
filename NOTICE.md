@@ -43,11 +43,18 @@ BrickLink API Terms of Service (<https://www.bricklink.com/v3/api.page>).
 from the BrickLink API — including price history, current offers, inventory
 and sales — must not be distributed, disclosed, uploaded, or transferred to
 any third party. It is exclusively for personal use of the account holder
-whose API credentials fetched it. Do not share database backups produced
-by this tool, do not publish price data harvested via the tool, do not
-resell it as a price service. Providing third-party access to the tool
-without granting each user their own BrickLink account and API key would
-also violate the API TOS.
+whose API credentials fetched it. Do not share database backups or price-
+data exports produced by this tool, do not publish price data harvested via
+the tool, do not resell it as a price service.
+
+**Single-account per instance.** This tool is designed for operation by
+**one person / household / BrickLink store per instance**. Self-registration
+of new users is disabled by design (the `/register` page returns 404 once
+the first admin account exists) — no stranger can join an instance and gain
+access to price data fetched with your BL account. The optional
+"Preisdaten Export/Import" feature is intended for **your own** instance
+migration (VPS → Raspberry Pi) or merging between your own instances —
+never for sharing data with third parties.
 
 The author accepts no liability for any losses, incorrect prices, banned
 accounts, or any other damages arising from use of this software. Use at
@@ -81,11 +88,19 @@ einzuhalten (<https://www.bricklink.com/v3/api.page>).
 Angebote, Inventar und Verkäufe — dürfen **nicht an Dritte weitergegeben,
 veröffentlicht, hochgeladen oder verkauft** werden. Sie sind ausschließlich
 für den privaten Gebrauch des Account-Inhabers dessen API-Zugangsdaten sie
-abgerufen haben. Datenbank-Backups die dieses Tool erstellt niemals mit
-anderen teilen, Preisdaten nicht öffentlich stellen, keinen Preis-Service
-mit den Daten aufbauen. Wenn du das Tool anderen zur Nutzung anbietest,
-muss jeder Nutzer seinen eigenen BrickLink-Account + API-Key haben —
-sonst verstößt der Betrieb gegen die API-TOS.
+abgerufen haben. Datenbank-Backups oder Preisdaten-Exports die dieses Tool
+erstellt niemals mit anderen teilen, Preisdaten nicht öffentlich stellen,
+keinen Preis-Service mit den Daten aufbauen.
+
+**Ein Account pro Instanz.** Das Tool ist für den Betrieb durch **eine
+Person / einen Haushalt / einen BrickLink-Store pro Instanz** konzipiert.
+Selbst-Registrierung fremder Nutzer ist per Design deaktiviert (`/register`
+antwortet mit 404 sobald der erste Admin-Account existiert) — kein Fremder
+kann sich auf deiner Instanz einen Account anlegen und auf die mit deinem
+BL-Account gecrawlten Preisdaten zugreifen. Das optionale "Preisdaten
+Export/Import"-Feature ist ausschließlich für den **eigenen** Instanz-Umzug
+(VPS → Raspberry Pi) oder den Merge zwischen **deinen eigenen** Instanzen
+gedacht — niemals zum Teilen mit Dritten.
 
 Der Autor übernimmt keinerlei Haftung für Verluste, falsche Preise, gesperrte
 Accounts oder sonstige Schäden, die durch die Nutzung dieser Software

@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { signIn } from "next-auth/react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 export default function LoginPage() {
@@ -99,12 +98,6 @@ export default function LoginPage() {
         </button>
       </form>
 
-      <p className="mt-6 text-center text-sm text-gray-500">
-        Noch kein Konto?{" "}
-        <Link href="/register" className="font-medium text-blue-600 hover:text-blue-700">
-          Registrieren
-        </Link>
-      </p>
     </div>
   );
 }

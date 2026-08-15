@@ -142,9 +142,11 @@ model PriceDaily {
 /// CREATE TABLE price_sales_2026_03 PARTITION OF price_sales
 /// FOR VALUES FROM ('2026-03-01') TO ('2026-04-01');
 ///
-/// Also create the deduplication unique index via raw SQL:
-/// CREATE UNIQUE INDEX idx_sales_dedup
-/// ON price_sales(part_id, date_ordered, unit_price, quantity, buyer_country);
+/// Deduplication unique index (aus migration 20260815120000):
+/// CREATE UNIQUE INDEX idx_sales_dedup ON price_sales
+///   (part_id, date_ordered, unit_price, quantity, buyer_country,
+///    new_or_used, seller_country, completeness)
+///   NULLS NOT DISTINCT;
 model PriceSale {
   id            BigInt   @default(autoincrement())
   partId        Int      @map("part_id")

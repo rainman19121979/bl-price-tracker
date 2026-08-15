@@ -401,8 +401,9 @@ show_next_steps() {
     echo ""
   fi
   echo "  ── Erster Login ──────────────────────────────────────────────────"
-  echo "    Der erste Account wird automatisch Admin. Danach unter"
-  echo "    Einstellungen → Registrierung ausschalten."
+  echo "    Beim ersten Aufruf im Browser wirst du auf /register geleitet."
+  echo "    Dort legst du deinen Admin-Account an. Danach ist die Selbst-"
+  echo "    Registrierung dauerhaft geschlossen (BL API TOS)."
   echo ""
   echo "  ── Wartung ───────────────────────────────────────────────────────"
   echo "    cd $INSTALL_DIR"
