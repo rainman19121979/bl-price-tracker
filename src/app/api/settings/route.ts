@@ -44,11 +44,31 @@ export async function GET() {
     prisma.$queryRaw<{ seller_country: string; sales: number }[]>`
       SELECT seller_country, COUNT(*)::int as sales
       FROM price_sales
-      WHERE seller_country IS NOT NULL
+      WHERE seller_country IS NOT NULL AND seller_country != 'XX'
       GROUP BY seller_country
       ORDER BY sales DESC
     `,
   ]);
+
+  // Fallback-Laenderliste falls DB noch leer ist (frischer Install ohne
+  // Marktdaten). Sonst waeren die Country-Filter-Dropdowns leer und der
+  // User haette keine Chance seinen Verkaeufer/Kaeufer-Filter zu setzen
+  // vor dem ersten Crawl. Liste = die ~30 aktivsten BL-Marktlaender.
+  const DEFAULT_BL_COUNTRIES = [
+    "DE", "US", "GB", "FR", "IT", "ES", "NL", "BE", "AT", "CH",
+    "PL", "CZ", "DK", "SE", "FI", "NO", "IE", "PT", "GR", "HU",
+    "LU", "CA", "AU", "NZ", "JP", "KR", "SG", "HK", "IL", "BR",
+  ];
+  const mergeCountries = <T extends { code: string; sales: number }>(agg: T[]): T[] => {
+    const existing = new Set(agg.map(c => c.code));
+    const merged: T[] = [...agg];
+    for (const code of DEFAULT_BL_COUNTRIES) {
+      if (!existing.has(code)) {
+        merged.push({ code, sales: 0 } as T);
+      }
+    }
+    return merged;
+  };
 
   return NextResponse.json({
     autoSyncInventory: user.autoSyncInventory,
@@ -57,14 +77,14 @@ export async function GET() {
     pricingFormulas,
     shippingCountries: user.shippingCountries ? user.shippingCountries.split(",") : null,
     sellerCountries: user.sellerCountries ? user.sellerCountries.split(",") : null,
-    availableCountries: buyerCountries.map((c) => ({
+    availableCountries: mergeCountries(buyerCountries.map((c) => ({
       code: c.buyer_country,
       sales: c.sales,
-    })),
-    availableSellerCountries: sellerCountriesAgg.map((c) => ({
+    }))),
+    availableSellerCountries: mergeCountries(sellerCountriesAgg.map((c) => ({
       code: c.seller_country,
       sales: c.sales,
-    })),
+    }))),
     bsxOrdersDir: user.bsxOrdersDir,
     bsxSource: {
       type: user.bsxSourceType,
