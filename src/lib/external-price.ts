@@ -125,7 +125,12 @@ export async function computeExternalPrice(
       return { partNo, colorId, itemType, condition: newOrUsed, error: "API daily limit exhausted", status: 429 };
     }
     try {
-      await fetchPriceData(part, newOrUsed, apiKey.id);
+      // Stock-country-Filter aus User-Settings ziehen -- damit BL Server-seitig
+      // auf DE-Stores filtert (Stock hat keinen per-Entry country).
+      const { sellerCountries: scForFetch } = await getCountryFilters(userId);
+      await fetchPriceData(part, newOrUsed, apiKey.id, {
+        stockCountryCodes: scForFetch ?? undefined,
+      });
       freshlyCrawled = true;
       part = await prisma.part.findUnique({
         where: { partNo_colorId_itemType: { partNo, colorId, itemType } },
@@ -225,7 +230,12 @@ export async function computeExternalPrice(
 
   // Lot-Match falls blInventoryId im Request: lookup user_watchlists fuer
   // saleRate/priceLocked/myPrice damit die BrickStore-Extension den Rabatt
-  // und Lock-Zustand zurueckspielen kann.
+  // und Lock-Zustand zurueckspielen kann. Zusaetzlich: der gecachte
+  // suggestedPrice aus user_watchlists ist korrekter als der LIVE-berechnete
+  // (LIVE setzt sold7d/30d/60d/90dMedian hardcoded auf 0 -- Formeln die
+  // diese Variablen nutzen bekommen sonst 0 oder unter-realistische Werte).
+  // Der Cache wird von recomputeLotPricing(...) mit ALLEN Zeit-Buckets
+  // korrekt gefuellt. Deshalb bei Lot-Match den Cache-Wert bevorzugen.
   let lotFields = {
     blInventoryId: null as number | null,
     saleRate: null as number | null,
@@ -235,7 +245,10 @@ export async function computeExternalPrice(
   if (req.blInventoryId) {
     const lot = await prisma.userWatchlist.findUnique({
       where: { userId_blInventoryId: { userId, blInventoryId: req.blInventoryId } },
-      select: { blInventoryId: true, saleRate: true, priceLocked: true, myPrice: true },
+      select: {
+        blInventoryId: true, saleRate: true, priceLocked: true, myPrice: true,
+        suggestedPrice: true, suggestedRuleName: true,
+      },
     });
     if (lot) {
       lotFields = {
@@ -244,6 +257,12 @@ export async function computeExternalPrice(
         priceLocked: lot.priceLocked ?? false,
         myPrice: lot.myPrice !== null ? Number(lot.myPrice) : null,
       };
+      // Cache-Preis bevorzugen falls vorhanden (die LIVE-Berechnung oben ist
+      // fuer Formeln mit Zeit-Bucket-Variablen unzuverlaessig -- siehe Kommentar)
+      if (lot.suggestedPrice !== null) {
+        suggestedPrice = Number(lot.suggestedPrice);
+        if (lot.suggestedRuleName) ruleName = lot.suggestedRuleName;
+      }
     }
   }
 

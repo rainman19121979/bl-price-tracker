@@ -320,10 +320,18 @@ async function processSold(job: NextJob, client: BrickLinkClient): Promise<void>
 // Process: stock
 // ---------------------------------------------------------------------------
 
-async function processStock(job: NextJob, client: BrickLinkClient): Promise<void> {
+async function processStock(job: NextJob, client: BrickLinkClient): Promise<number> {
   // Bei SETs pro Completeness getrennt (siehe processSold-Kommentar)
   const completenessList: Array<'C' | 'I' | 'S' | undefined> =
     job.itemType === 'SET' ? ['C', 'I', 'S'] : [undefined]
+
+  // User-Setting: sellerCountries -> pro Country separater BL-Call mit
+  // country_code. BL filtert Server-seitig auf Stores in dem Land.
+  // Ohne User-Setting: weltweit wie bisher (seller_country='XX').
+  const { getCountryFilters } = await import('@/lib/user-settings')
+  const { sellerCountries } = await getCountryFilters(job.userId)
+  const stockCountries: Array<string | null> =
+    (sellerCountries && sellerCountries.length > 0) ? sellerCountries : [null]
 
   const today = new Date()
   today.setHours(0, 0, 0, 0)
@@ -331,12 +339,7 @@ async function processStock(job: NextJob, client: BrickLinkClient): Promise<void
   let totalOffers = 0
 
   for (const completeness of completenessList) {
-    const response = await client.getPriceGuide(
-      job.partNo, job.itemType, job.colorId, job.newOrUsed, 'stock', undefined, completeness
-    )
-    const data = response.data
-
-    // Alten Snapshot dieses Tages für gleiche (part, condition, completeness) wegwerfen
+    // Alten Snapshot dieses Tages einmal wegwerfen (unabhaengig vom Country)
     await prisma.$executeRaw`
       DELETE FROM price_stock
       WHERE part_id = ${job.partId}
@@ -345,23 +348,33 @@ async function processStock(job: NextJob, client: BrickLinkClient): Promise<void
         AND completeness IS NOT DISTINCT FROM ${completeness ?? null}
     `
 
-    if (!data.price_detail || data.price_detail.length === 0) continue
+    for (const country of stockCountries) {
+      const response = await client.getPriceGuide(
+        job.partNo, job.itemType, job.colorId, job.newOrUsed, 'stock',
+        country ?? undefined, completeness
+      )
+      const data = response.data
+      if (!data.price_detail || data.price_detail.length === 0) continue
 
-    for (let i = 0; i < data.price_detail.length; i += CHUNK) {
-      await Promise.all(data.price_detail.slice(i, i + CHUNK).map(offer =>
-        prisma.$executeRaw`
-          INSERT INTO price_stock (part_id, unit_price, quantity, seller_country, new_or_used, completeness, fetched_at, created_at)
-          VALUES (${job.partId}, ${parseFloat(offer.unit_price)}::decimal(10,4), ${offer.quantity},
-            ${offer.seller_country_code || 'XX'}, ${job.newOrUsed}, ${completeness ?? null}, ${today}, NOW())
-          ON CONFLICT DO NOTHING
-        `
-      ))
+      const storeCountry = country ?? 'XX'
+      for (let i = 0; i < data.price_detail.length; i += CHUNK) {
+        await Promise.all(data.price_detail.slice(i, i + CHUNK).map(offer =>
+          prisma.$executeRaw`
+            INSERT INTO price_stock (part_id, unit_price, quantity, seller_country, new_or_used, completeness, fetched_at, created_at)
+            VALUES (${job.partId}, ${parseFloat(offer.unit_price)}::decimal(10,4), ${offer.quantity},
+              ${storeCountry}, ${job.newOrUsed}, ${completeness ?? null}, ${today}, NOW())
+            ON CONFLICT DO NOTHING
+          `
+        ))
+      }
+      totalOffers += data.price_detail.length
     }
-    totalOffers += data.price_detail.length
   }
 
   const completenessLabel = job.itemType === 'SET' ? ' [C+I+S]' : ''
-  console.log(`[Crawler] STOCK${completenessLabel} ${job.partNo}/${job.colorId}/${job.newOrUsed}: ${totalOffers} Angebote`)
+  const countryLabel = stockCountries.length > 1 || stockCountries[0] !== null
+    ? ` [${stockCountries.map(c => c ?? 'WW').join('+')}]` : ''
+  console.log(`[Crawler] STOCK${completenessLabel}${countryLabel} ${job.partNo}/${job.colorId}/${job.newOrUsed}: ${totalOffers} Angebote`)
 
   const now = new Date()
   await prisma.part.update({
@@ -371,6 +384,9 @@ async function processStock(job: NextJob, client: BrickLinkClient): Promise<void
       ...(job.newOrUsed === 'N' ? { lastStockCrawlN: now } : { lastStockCrawlU: now }),
     },
   })
+
+  // Return actual API calls made: completenessList * stockCountries
+  return completenessList.length * stockCountries.length
 }
 
 // ---------------------------------------------------------------------------
@@ -401,19 +417,22 @@ async function crawlerLoop(): Promise<void> {
       const tokenSecret = decrypt(job.tokenSecretEnc)
       const client = new BrickLinkClient(job.consumerKey, consumerSecret, job.tokenValue, tokenSecret, 0)
 
+      let actualCalls: number
       if (job.type === 'sold') {
         await processSold(job, client)
+        // Sold: 1 Call (bzw. 3 bei SETs -- pro Completeness), weltweit
+        actualCalls = job.itemType === 'SET' ? 3 : 1
       } else {
-        await processStock(job, client)
+        actualCalls = await processStock(job, client)
       }
 
       // Remember last type for alternation
       await redis.set('crawler:lastType', job.type)
 
-      // Log API call(s) (rolling 24h window). SETs machen 3 Calls (C+I+S),
-      // Parts/Minifigs 1 Call pro sold/stock-Phase.
-      const callCount = job.itemType === 'SET' ? 3 : 1
-      await logApiCall(job.apiKeyId, callCount)
+      // Log API call(s) (rolling 24h window). processStock returned die
+      // echte Call-Zahl weil bei Multi-Country-User pro Country ein Call
+      // gemacht wird.
+      await logApiCall(job.apiKeyId, actualCalls)
 
       // Clear priority flag after crawl
       await prisma.userWatchlist.updateMany({

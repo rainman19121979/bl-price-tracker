@@ -89,30 +89,51 @@ Script {
         if (!doc) {
             throw new Error(qsTr("Kein Dokument geoeffnet."))
         }
-
-        // Selection oder alle Lots?
-        var lots
-        if (doc.selectedLots && doc.selectedLots.length > 0) {
-            lots = doc.selectedLots
-        } else {
-            lots = []
-            for (var i = 0; i < doc.lotCount; i++) lots.push(doc.lots.at(i))
-        }
-
-        if (lots.length === 0) {
+        if (doc.lotCount === 0) {
             throw new Error(qsTr("Keine Lots im Dokument."))
         }
 
+        // Selection-Support:
+        // - doc.selectedLots liefert schreibgeschuetzte Kopien ("Cannot modify
+        //   a const Lot") -- read-only Properties gehen aber
+        // - Wir sammeln aus selectedLots die BL-InventoryIDs (oder Fallback-
+        //   Hash) und iterieren dann doc.lots.at(i) fuer schreibbare Refs.
+        // - Keine Selektion vorhanden -> alle Lots im Dokument.
+        var selectedKeys = null  // null = alle Lots
+        if (doc.selectedLots && doc.selectedLots.length > 0) {
+            selectedKeys = {}
+            for (var s = 0; s < doc.selectedLots.length; s++) {
+                var sl = doc.selectedLots[s]
+                if (!sl.item || sl.item.isNull) continue
+                // Key: bevorzugt lotId, sonst partNo|colorId|condition
+                var key = sl.lotId > 0
+                    ? "id:" + sl.lotId
+                    : "pcc:" + sl.item.id + "|" + sl.color.id + "|" + conditionCode(sl)
+                selectedKeys[key] = true
+            }
+        }
+
         // Nur unterstuetzte Item-Types + gueltige Refs
+        // Wir speichern INDEX statt Lot-Referenz -- beim Schreiben holen wir
+        // die schreibbare Instanz nochmal per doc.lots.at(index).
         var eligible = []
-        var skipped = { badType: 0, noItem: 0 }
-        for (var j = 0; j < lots.length; j++) {
-            var l = lots[j]
+        var skipped = { badType: 0, noItem: 0, notSelected: 0 }
+        for (var j = 0; j < doc.lotCount; j++) {
+            var l = doc.lots.at(j)
             if (!l.item || l.item.isNull) { skipped.noItem++; continue }
             var it = itemTypeCode(l)
             if (!it) { skipped.badType++; continue }
+
+            // Selection-Filter
+            if (selectedKeys !== null) {
+                var lkey = l.lotId > 0
+                    ? "id:" + l.lotId
+                    : "pcc:" + l.item.id + "|" + l.color.id + "|" + conditionCode(l)
+                if (!selectedKeys[lkey]) { skipped.notSelected++; continue }
+            }
+
             eligible.push({
-                lot: l,
+                index: j,
                 request: {
                     partNo: l.item.id,
                     colorId: l.color.id,
@@ -190,9 +211,10 @@ Script {
                 }
 
                 // Fuer jeden Lot im Batch: Preis + Sale schreiben
+                // WICHTIG: schreibbare Lot-Referenz per doc.lots.at(index)
+                // holen -- die im Batch gespeicherte war nur ein Index.
                 for (var b = 0; b < batch.length; b++) {
                     var entry = batch[b]
-                    var lot = entry.lot
                     var reqKey = makeKey(
                         entry.request.partNo, entry.request.colorId,
                         entry.request.condition, entry.request.completeness
@@ -201,17 +223,31 @@ Script {
                     if (!priceInfo) continue  // Fehler-Fall, schon in stats
 
                     // Preis-Wahl: locked -> myPrice, sonst suggestedPrice
+                    // WICHTIG: nur Preise > 0 uebernehmen! Sonst wird bei
+                    // Locked-Lots ohne myPrice oder bei Marktdaten-losen
+                    // Parts der Preis auf 0.000 gesetzt und der User
+                    // veroeffentlicht versehentlich Gratis-Angebote.
                     var priceToWrite = null
-                    if (priceInfo.priceLocked === true && priceInfo.myPrice !== null) {
+                    if (priceInfo.priceLocked === true
+                            && priceInfo.myPrice !== null
+                            && priceInfo.myPrice > 0) {
                         priceToWrite = priceInfo.myPrice
                         stats.priceLockedUsed++
-                    } else if (priceInfo.suggestedPrice !== null) {
+                    } else if (priceInfo.suggestedPrice !== null
+                            && priceInfo.suggestedPrice > 0) {
                         priceToWrite = priceInfo.suggestedPrice
                     } else {
                         stats.skippedNoPrice++
                         continue
                     }
 
+                    // Belt-and-Suspenders -- niemals 0 oder negativ schreiben
+                    if (!(priceToWrite > 0)) {
+                        stats.skippedNoPrice++
+                        continue
+                    }
+
+                    var lot = doc.lots.at(entry.index)  // schreibbare Referenz
                     lot.price = priceToWrite
                     if (priceInfo.saleRate !== null && priceInfo.saleRate !== undefined) {
                         lot.sale = priceInfo.saleRate
@@ -257,6 +293,9 @@ Script {
         }
         if (skipped.noItem > 0) {
             msg += qsTr("Uebersprungen (kein Item): %1").arg(skipped.noItem) + "\n"
+        }
+        if (skipped.notSelected > 0) {
+            msg += qsTr("Uebersprungen (nicht selektiert): %1").arg(skipped.notSelected) + "\n"
         }
         if (apiUsage) {
             msg += qsTr("\nBrickLink-API-Budget: %1/%2 (Rest %3)")

@@ -1,5 +1,6 @@
 import { prisma } from './db'
 import { fetchPriceData } from './fetch-prices'
+import { getCountryFilters } from './user-settings'
 import { logApiCall, getUsage, getExternalCallCount } from './api-usage'
 import { recomputeLotPricing } from './lot-pricing'
 
@@ -137,7 +138,10 @@ export async function upsertLot(
       const ext = await getExternalCallCount(userId)
       if (apiKey.dailyLimit - used - ext >= 2) {
         try {
-          await fetchPriceData(part, lot.condition, apiKey.id)
+          const { sellerCountries: scForFetch } = await getCountryFilters(userId)
+          await fetchPriceData(part, lot.condition, apiKey.id, {
+            stockCountryCodes: scForFetch ?? undefined,
+          })
           await logApiCall(apiKey.id)
           freshlyCrawled = true
         } catch (err) {

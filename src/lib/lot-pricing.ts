@@ -122,7 +122,12 @@ async function fetchStockStatsForParts(
 ): Promise<Map<string, StockStats>> {
   if (partIds.length === 0) return new Map()
   const params: unknown[] = [partIds]
-  const cf = sellerCountries ? (params.push(sellerCountries), " AND seller_country = ANY($2)") : ""
+  // Stock: seller_country-Filter erlaubt zusaetzlich den 'XX'-Sentinel weil
+  // BL im Stock-Response gar keinen seller_country_code liefert (nur bei
+  // Sold-Details). Ohne diesen Fallback wuerde 'XX' aus dem Filter fallen
+  // und alle Aggregate == NULL werden.
+  const cf = sellerCountries ? (params.push(sellerCountries), " AND (seller_country = ANY($2) OR seller_country = 'XX')") : ""
+  const cfPsWhere = sellerCountries ? "WHERE (ps.seller_country = ANY($2) OR ps.seller_country = 'XX')" : ""
 
   const rows = await prisma.$queryRawUnsafe<Array<{ part_id: number; new_or_used: string; completeness: string | null } & StockStats>>(
     `WITH latest AS (
@@ -138,7 +143,7 @@ async function fetchStockStatsForParts(
     FROM price_stock ps
     JOIN latest l ON ps.part_id = l.part_id AND ps.new_or_used = l.new_or_used
       AND ps.completeness IS NOT DISTINCT FROM l.completeness AND ps.fetched_at = l.fetched_at
-    ${cf ? "WHERE ps.seller_country = ANY($2)" : ""}
+    ${cfPsWhere}
     GROUP BY ps.part_id, ps.new_or_used, ps.completeness`,
     ...params
   )
@@ -208,7 +213,6 @@ export async function recomputeLotPricing(watchlistId: number): Promise<void> {
     fetchStockStatsForParts(partIds, sellerCountries),
   ])
 
-  const key = `${w.partId}:${w.newOrUsed}:${w.completeness ?? ""}`
   const row: WatchlistRow = {
     id: w.id, partId: w.partId, newOrUsed: w.newOrUsed, completeness: w.completeness,
     myPrice: w.myPrice ? Number(w.myPrice) : 0,
@@ -217,7 +221,9 @@ export async function recomputeLotPricing(watchlistId: number): Promise<void> {
     itemType: w.part.itemType, colorId: w.part.colorId,
     categoryId: w.part.categoryId ?? null,
   }
-  const r = computeOne(row, soldStats.get(key), stockStats.get(key), rules)
+  const soldRow = getStatsForLot(soldStats, w.partId, w.newOrUsed, w.completeness)
+  const stockRow = getStatsForLot(stockStats, w.partId, w.newOrUsed, w.completeness)
+  const r = computeOne(row, soldRow, stockRow, rules)
 
   await prisma.userWatchlist.update({
     where: { id: watchlistId },
@@ -230,6 +236,29 @@ export async function recomputeLotPricing(watchlistId: number): Promise<void> {
       pricingComputedAt: new Date(),
     },
   })
+}
+
+/**
+ * Stats-Lookup mit Completeness-Fallback: sucht erst exakt nach dem
+ * angeforderten completeness-Wert, sonst nach completeness=NULL. Grund:
+ * - Alt-Sales aus der Zeit vor der Completeness-Migration (14.08.2026)
+ *   sind unter completeness=NULL gespeichert.
+ * - Minifig-SETs (col*): BL liefert fuer C/I/S immer die gleichen Daten,
+ *   der Split ist BL-seitig nicht implementiert. Wenn beim naechsten
+ *   Crawl fuer diese Parts ein NULL-Fallback existiert, kann das Watchlist
+ *   den nutzen -- statt strikt auf 'C'/'S' zu filtern und leer zu bleiben.
+ */
+function getStatsForLot<T>(
+  map: Map<string, T>,
+  partId: number,
+  newOrUsed: string,
+  completeness: string | null,
+): T | undefined {
+  const key = `${partId}:${newOrUsed}:${completeness ?? ""}`
+  const exact = map.get(key)
+  if (exact) return exact
+  if (completeness) return map.get(`${partId}:${newOrUsed}:`)
+  return undefined
 }
 
 /** Recompute all watchlist-lots that reference the given part+condition. */
@@ -263,8 +292,9 @@ export async function recomputeAllLotsForPart(partId: number, newOrUsed: 'N' | '
         itemType: w.part.itemType, colorId: w.part.colorId,
         categoryId: w.part.categoryId ?? null,
       }
-      const key = `${w.partId}:${w.newOrUsed}:${w.completeness ?? ""}`
-      const r = computeOne(row, soldStats.get(key), stockStats.get(key), rules)
+      const soldRow = getStatsForLot(soldStats, w.partId, w.newOrUsed, w.completeness)
+      const stockRow = getStatsForLot(stockStats, w.partId, w.newOrUsed, w.completeness)
+      const r = computeOne(row, soldRow, stockRow, rules)
       await prisma.userWatchlist.update({
         where: { id: w.id },
         data: {
@@ -300,7 +330,6 @@ export async function recomputeAllLotsForUser(userId: number): Promise<{ updated
   interface Result { id: number; suggestedPrice: number | null; ruleName: string | null; trend: string; marketStockMedian: number | null; marketSoldMedian: number | null }
   const results: Result[] = []
   for (const w of lots) {
-    const key = `${w.partId}:${w.newOrUsed}:${w.completeness ?? ""}`
     const row: WatchlistRow = {
       id: w.id, partId: w.partId, newOrUsed: w.newOrUsed, completeness: w.completeness,
       myPrice: w.myPrice ? Number(w.myPrice) : 0,
@@ -309,7 +338,9 @@ export async function recomputeAllLotsForUser(userId: number): Promise<{ updated
       itemType: w.part.itemType, colorId: w.part.colorId,
       categoryId: w.part.categoryId ?? null,
     }
-    const r = computeOne(row, soldStats.get(key), stockStats.get(key), rules)
+    const soldRow = getStatsForLot(soldStats, w.partId, w.newOrUsed, w.completeness)
+    const stockRow = getStatsForLot(stockStats, w.partId, w.newOrUsed, w.completeness)
+    const r = computeOne(row, soldRow, stockRow, rules)
     results.push({ id: w.id, ...r })
   }
 
