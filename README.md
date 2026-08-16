@@ -194,6 +194,8 @@ Unter der Formel gibt's "Live-Vorschau" — die zeigt dir mit einem echten Teil 
 
 ![Preisformeln mit Live-Vorschau](docs/03-settings-pricing.png)
 
+> **Formel-Cheatsheet + KI-Prompt-Template:** [docs/PRICING_FORMULAS.md](./docs/PRICING_FORMULAS.md) listet alle verfügbaren Variablen (sold-Median/Avg über 7d/30d/60d/90d/6M, stock-Median/Avg, myCost/myPrice/myQty), Operatoren, Funktionen (min/max/round/avg/abs) und 9 Beispiel-Formeln mit Erklärung. Am Ende steht ein Prompt-Template das du zusammen mit dem Dokument in ein Claude/ChatGPT-Fenster kopieren kannst — dann baut dir die KI eine Formel nach deiner Beschreibung.
+
 **4. Datenaktualität einstellen** (Einstellungen → Datenaktualität)
 
 Standard: 6 Monate. Bedeutet: Teile werden alle 6 Monate neu vom Markt abgefragt. Das Tool zeigt dir live an, wie viele API-Aufrufe pro Tag das braucht — kürzere Zeiträume brauchen mehr. Wenn's dein API-Limit überschreiten würde, blockt es.
