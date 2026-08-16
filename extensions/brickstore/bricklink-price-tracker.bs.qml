@@ -23,6 +23,7 @@
 import BrickStore 1.1
 import BrickLink 1.1
 import QtQuick
+import QtQuick.Dialogs
 
 Script {
     name: "BrickLink Price Tracker"
@@ -35,6 +36,31 @@ Script {
     // ===========================
 
     readonly property int batchSize: 100  // Tracker akzeptiert bis 100 pro Batch
+
+    // Info-Dialog fuer Zusammenfassung + async-Fehler.
+    // BrickStore's `throw new Error()` funktioniert nur bei synchronen
+    // Fehlern im actionFunction-Kontext (Script.cpp:91 fangt exceptions und
+    // reicht sie an UIHelpers::warning weiter). Async-Handler (xhr) laufen
+    // ausserhalb des Try-Catch -- deshalb brauchen wir hier ein echtes
+    // MessageDialog.
+    //
+    // ACHTUNG -- unverifiziert bei bestimmten BrickStore-Builds: bei einem
+    // ersten Test triggerte der Dialog nicht (Progress-Overlay schliesst sich
+    // stumm). Moegliche Ursachen: Qt6-vs-Qt5-Modulname-Unterschied fuer
+    // QtQuick.Dialogs, oder MessageDialog-Properties heissen anders in Qt6.
+    // Falls's bei dir auch nicht triggert: `console.log(msg)` in showInfo()
+    // aktivieren -- dann ist der Text zumindest in Extras -> Developer
+    // Console sichtbar.
+    MessageDialog {
+        id: infoDialog
+        title: qsTr("BrickLink Price Tracker")
+        buttons: MessageDialog.Ok
+    }
+    function showInfo(msg) {
+        infoDialog.text = msg
+        infoDialog.open()
+        console.log("[BL Price Tracker] " + msg)  // Fallback wenn Dialog nicht triggert
+    }
 
     ExtensionScriptAction {
         text: qsTr("Preise aus Price Tracker holen...")
@@ -183,16 +209,18 @@ Script {
                 if (xhr.readyState !== XMLHttpRequest.DONE) return
                 if (xhr.status !== 200) {
                     doc.endBlockingOperation()
-                    throw new Error(qsTr(
+                    showInfo(qsTr(
                         "Tracker-API antwortete mit HTTP %1:\n%2"
                     ).arg(xhr.status).arg(xhr.responseText.slice(0, 300)))
+                    return
                 }
 
                 try {
                     var resp = JSON.parse(xhr.responseText)
                 } catch (e) {
                     doc.endBlockingOperation()
-                    throw new Error(qsTr("Antwort ist kein gueltiges JSON"))
+                    showInfo(qsTr("Antwort ist kein gueltiges JSON"))
+                    return
                 }
 
                 // Response: {count, items: [...], apiUsage: {...}}
@@ -265,7 +293,7 @@ Script {
             }
             xhr.onerror = function() {
                 doc.endBlockingOperation()
-                throw new Error(qsTr("Netzwerk-Fehler beim Kontakt mit dem Tracker."))
+                showInfo(qsTr("Netzwerk-Fehler beim Kontakt mit dem Tracker."))
             }
             xhr.send(JSON.stringify({ items: items }))
         }
@@ -301,6 +329,6 @@ Script {
             msg += qsTr("\nBrickLink-API-Budget: %1/%2 (Rest %3)")
                 .arg(apiUsage.used).arg(apiUsage.limit).arg(apiUsage.remaining)
         }
-        throw new Error(msg)  // dies zeigt einen Info-Dialog in BrickStore
+        showInfo(msg)  // async-safe -- MessageDialog wird sichtbar
     }
 }
