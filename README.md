@@ -540,6 +540,28 @@ Jede Response enthält `apiUsage: {used, external, limit, remaining}` — dein a
 
 **Volle Dokumentation mit Beispielen:** [API.md](./API.md)
 
+### BrickStore-Extension (Preise direkt in BrickStore importieren)
+
+Statt dem umständlichen "BSX-Export vom Tracker → in BrickStore Preis-Spalte kopieren"-Workflow gibt es jetzt eine **native BrickStore-Extension** unter [extensions/brickstore/bricklink-price-tracker.bs.qml](./extensions/brickstore/bricklink-price-tracker.bs.qml). Ein Klick auf "Extras → Preise aus Price Tracker holen..." und BrickStore fragt in Batches die Empfehlungspreise (+ Rabatte + Lock-Zustand) aus dem Tracker und schreibt sie direkt in die aktuell geöffnete BSX.
+
+**Installation:**
+
+1. `extensions/brickstore/bricklink-price-tracker.bs.qml` aus dem Repo ziehen
+2. Die zwei Zeilen `trackerUrl` und `trackerToken` am Anfang der Datei ausfüllen (Token gibt's in der Tracker-UI unter Einstellungen → API-Tokens)
+3. Datei in den BrickStore-Extensions-Ordner kopieren:
+   - **Linux:** `~/.local/share/BrickStore/extensions/`
+   - **macOS:** `~/Library/Application Support/BrickStore/extensions/`
+   - **Windows:** `%APPDATA%\BrickStore\extensions\`
+4. In BrickStore: **Extras → Reload user scripts**
+
+**Was die Extension pro Lot macht:**
+
+- **Preis:** wenn `priceLocked=true` im Tracker → schreibt deinen manuellen `myPrice`; sonst den `suggestedPrice` aus deiner Preisformel
+- **Rabatt:** schreibt den `saleRate` aus dem Tracker (0-99%)
+- **Nur `Price` + `Sale` werden angefasst** — `Cost`, `Comments`, `Remarks`, `Quantity` bleiben unangetastet
+- Selection-aware: markiere Lots vorher → nur die werden aktualisiert; ohne Selektion → alle Lots
+- Progress-Overlay mit Cancel-Button, Zusammenfassung am Ende inkl. API-Budget
+
 ---
 
 ## Ports

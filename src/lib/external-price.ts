@@ -38,6 +38,10 @@ export interface PriceRequest {
   itemType: "PART" | "MINIFIG" | "SET";
   condition: "N" | "U";
   completeness?: "C" | "I" | "S";  // nur bei SET relevant, sonst ignoriert
+  blInventoryId?: number;  // optional -- wenn mitgegeben, wird der Watchlist-Eintrag
+                           // gematcht und lot-spezifische Felder (saleRate, priceLocked,
+                           // myPrice) im Response ergaenzt. Fuer BrickStore-Extension,
+                           // die den Rabatt + Lock-Zustand zurueckspielen will.
 }
 
 export interface PriceResponse {
@@ -58,6 +62,12 @@ export interface PriceResponse {
   lastSoldFetch: Date | null;
   lastStockFetch: Date | null;
   freshlyCrawled: boolean;
+  // Lot-spezifisch -- nur befuellt wenn Request blInventoryId enthielt und ein
+  // passender user_watchlists-Eintrag gefunden wurde. Sonst alle null.
+  blInventoryId: number | null;
+  saleRate: number | null;      // Rabatt in Prozent (0-99), aus user_watchlists.saleRate
+  priceLocked: boolean | null;  // true = Extension sollte den Preis NICHT ueberschreiben
+  myPrice: number | null;       // aktueller myPrice im Tracker (fuer Anzeige/Locked-Fallback)
 }
 
 export interface PriceError {
@@ -213,6 +223,30 @@ export async function computeExternalPrice(
     }
   }
 
+  // Lot-Match falls blInventoryId im Request: lookup user_watchlists fuer
+  // saleRate/priceLocked/myPrice damit die BrickStore-Extension den Rabatt
+  // und Lock-Zustand zurueckspielen kann.
+  let lotFields = {
+    blInventoryId: null as number | null,
+    saleRate: null as number | null,
+    priceLocked: null as boolean | null,
+    myPrice: null as number | null,
+  };
+  if (req.blInventoryId) {
+    const lot = await prisma.userWatchlist.findUnique({
+      where: { userId_blInventoryId: { userId, blInventoryId: req.blInventoryId } },
+      select: { blInventoryId: true, saleRate: true, priceLocked: true, myPrice: true },
+    });
+    if (lot) {
+      lotFields = {
+        blInventoryId: lot.blInventoryId,
+        saleRate: lot.saleRate ?? 0,
+        priceLocked: lot.priceLocked ?? false,
+        myPrice: lot.myPrice !== null ? Number(lot.myPrice) : null,
+      };
+    }
+  }
+
   return {
     partNo, colorId, itemType, condition: newOrUsed,
     completeness: effectiveCompleteness,
@@ -228,6 +262,7 @@ export async function computeExternalPrice(
     lastSoldFetch: newOrUsed === "N" ? part.lastSoldCrawlN : part.lastSoldCrawlU,
     lastStockFetch: newOrUsed === "N" ? part.lastStockCrawlN : part.lastStockCrawlU,
     freshlyCrawled,
+    ...lotFields,
   };
 }
 
@@ -284,7 +319,8 @@ export async function enforceExternalRateLimit(tokenId: number): Promise<Respons
 }
 
 export function validateRequest(item: {
-  partNo?: unknown; colorId?: unknown; itemType?: unknown; condition?: unknown; completeness?: unknown;
+  partNo?: unknown; colorId?: unknown; itemType?: unknown; condition?: unknown;
+  completeness?: unknown; blInventoryId?: unknown;
 }): { ok: true; req: PriceRequest } | { ok: false; error: string } {
   const partNo = typeof item.partNo === "string" ? item.partNo.trim() : "";
   const colorId = typeof item.colorId === "number" ? item.colorId : parseInt(String(item.colorId));
@@ -305,6 +341,13 @@ export function validateRequest(item: {
   };
   if (itemType === "SET" && completeness) {
     req.completeness = completeness as "C" | "I" | "S";
+  }
+  if (item.blInventoryId !== undefined && item.blInventoryId !== null) {
+    const bi = typeof item.blInventoryId === "number" ? item.blInventoryId : parseInt(String(item.blInventoryId));
+    if (!Number.isFinite(bi) || bi <= 0) {
+      return { ok: false, error: "blInventoryId must be a positive number if provided" };
+    }
+    req.blInventoryId = bi;
   }
   return { ok: true, req };
 }

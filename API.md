@@ -134,7 +134,7 @@ Bis zu **100 Teile pro Request**. Verarbeitung sequentiell (respektiert BL API-B
 {
   "items": [
     {"partNo": "3024", "colorId": 1, "itemType": "PART", "condition": "N"},
-    {"partNo": "3023", "colorId": 5, "itemType": "PART", "condition": "U"},
+    {"partNo": "3023", "colorId": 5, "itemType": "PART", "condition": "U", "blInventoryId": 987654321},
     {"partNo": "75192-1", "colorId": 0, "itemType": "SET", "condition": "N", "completeness": "S"}
   ]
 }
@@ -142,18 +142,42 @@ Bis zu **100 Teile pro Request**. Verarbeitung sequentiell (respektiert BL API-B
 
 **Pro Item:** dieselben Pflichtfelder wie bei GET `/price`. `completeness` (`C`/`I`/`S`) ist optional und wirkt nur bei `itemType=SET` — default `C`.
 
+**Optional `blInventoryId`:** Wenn mitgeschickt und der User einen passenden Watchlist-Eintrag hat, werden zusätzlich zu den Marktdaten die lot-spezifischen Felder `saleRate`, `priceLocked` und `myPrice` im Response ergänzt. Ohne `blInventoryId` sind diese Felder `null`. Wird von der [BrickStore-Extension](../extensions/brickstore/bricklink-price-tracker.bs.qml) genutzt, damit der Rabatt und Lock-Zustand aus dem Tracker in die BSX zurückgespielt werden kann.
+
 **Response 200:**
 
 ```json
 {
-  "count": 2,
+  "count": 3,
   "items": [
-    { /* wie GET /price */ },
-    { /* … oder {"partNo":"XXBAD", …, "error":"BL fetch failed"} */ }
+    {
+      "partNo": "3024", "colorId": 1, "itemType": "PART", "condition": "N", "completeness": null,
+      "suggestedPrice": 0.0463, "rule": "Standard",
+      "stockMedian": 0.05, "stockAvg": 0.048, "stockMin": 0.02, "stockMax": 0.20,
+      "stockOffers": 47, "soldMedian": 0.045, "soldAvg": 0.046,
+      "lastSoldFetch": "2026-08-15T22:12:33.000Z", "lastStockFetch": "2026-08-15T22:12:35.000Z",
+      "freshlyCrawled": false,
+      "blInventoryId": null, "saleRate": null, "priceLocked": null, "myPrice": null
+    },
+    {
+      "partNo": "3023", "colorId": 5, "itemType": "PART", "condition": "U", "completeness": null,
+      "suggestedPrice": 0.038, "rule": "Standard",
+      "stockMedian": 0.04, "...": "...",
+      "blInventoryId": 987654321,
+      "saleRate": 15,
+      "priceLocked": true,
+      "myPrice": 0.0500
+    },
+    { "partNo":"XXBAD", "colorId": 0, "itemType": "PART", "condition": "N", "error": "Part not found", "status": 404 }
   ],
   "apiUsage": {"used": 772, "external": 0, "limit": 4000, "remaining": 3228}
 }
 ```
+
+**Preis-Entscheidungs-Logik für Konsumenten** (z.B. BrickStore-Extension):
+- `priceLocked === true` → schreibe `myPrice` (der User hat den Preis im Tracker manuell festgelegt)
+- `priceLocked === false || null` → schreibe `suggestedPrice` (Formel-Ergebnis)
+- `saleRate > 0` → zusätzlich als Rabatt-Prozent übernehmen
 
 **Fehler:**
 
