@@ -52,9 +52,13 @@ export function SellerCountriesSection({
           Waehle die Verkaeuferlaender, die fuer Preisberechnung beruecksichtigt werden sollen
           (Sold + Stock). Beispiel: DE + CH nutzt nur Angebote aus diesen beiden Laendern.
         </p>
-        <p className="mt-1 text-xs text-gray-400">
-          Daten werden global von BrickLink geholt; hier filterst du nachtraeglich.
-        </p>
+        <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+          <strong>Nach Aenderung:</strong> Empfehlungspreise werden sofort neu berechnet, aber die
+          Anzeige <em>&quot;Aktuelle Angebote&quot;</em> auf der Teil-Detailseite faellt vorerst
+          auf weltweite Daten zurueck. Erst nach dem naechsten Crawl-Durchlauf pro Teil sind die
+          Angebote wirklich landspezifisch gefiltert. Bei deinem BrickLink-API-Budget dauert das
+          ca. 10 Tage bis alle Teile durchrotiert sind (bei Standard-Setting 1000 Calls/Tag).
+        </div>
       </div>
 
       <div className="mt-4">

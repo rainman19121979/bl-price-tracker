@@ -42,12 +42,18 @@ export async function GET(
   const effectiveCompleteness = isSet ? (validCompl ?? "C") : null;
 
   // Stock items + own lots in parallel
-  interface StockRow { unit_price: number; quantity: number; fetched_at: Date; }
+  // seller_country-Filter: BL liefert bei Stock kein per-Entry country-code,
+  // deshalb zusaetzlich immer 'XX'-Fallback matchen (Bestandsdaten + Faelle
+  // wo der Country-spezifische Crawl noch nicht durchgelaufen ist).
+  interface StockRow { unit_price: number; quantity: number; fetched_at: Date; seller_country: string; }
 
   const stockArgs: unknown[] = [part.id, condition];
   let p = 3;
   let stockCf = "";
-  if (sellerCountries) { stockCf += ` AND seller_country = ANY($${p++})`; stockArgs.push(sellerCountries); }
+  if (sellerCountries) {
+    stockCf += ` AND (seller_country = ANY($${p++}) OR seller_country = 'XX')`;
+    stockArgs.push(sellerCountries);
+  }
   if (effectiveCompleteness) { stockCf += ` AND completeness = $${p++}`; stockArgs.push(effectiveCompleteness); }
   else                       { stockCf += ` AND completeness IS NULL`; }
 
@@ -56,7 +62,7 @@ export async function GET(
       `WITH latest AS (
         SELECT MAX(fetched_at) as max_ts FROM price_stock WHERE part_id = $1 AND new_or_used = $2 ${stockCf}
       )
-      SELECT unit_price::float, quantity, fetched_at
+      SELECT unit_price::float, quantity, fetched_at, seller_country
       FROM price_stock, latest
       WHERE part_id = $1 AND new_or_used = $2 AND fetched_at = latest.max_ts ${stockCf}
       ORDER BY unit_price ASC`,
@@ -67,6 +73,9 @@ export async function GET(
       select: { myPrice: true, myQuantity: true },
     }),
   ]);
+
+  // Country-Quellen bestimmen -- fuer die "Aktuelle Angebote"-Label im UI
+  const countrySources = Array.from(new Set(items.map(i => i.seller_country)));
 
   return NextResponse.json({
     items: items.map((i) => {
@@ -82,5 +91,10 @@ export async function GET(
         isMine,
       };
     }),
+    // Meta: welche seller_countries die zurueckgegebenen Zeilen tatsaechlich
+    // repraesentieren. 'XX' = weltweiter Fallback (kein Country-spezifischer
+    // Crawl vorhanden). UI kann darauf Label anpassen.
+    countrySources,
+    userSellerCountries: sellerCountries,
   });
 }

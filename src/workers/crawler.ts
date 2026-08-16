@@ -4,12 +4,42 @@ import { BrickLinkClient, BrickLinkApiError } from '@/lib/bricklink-api'
 import { logApiCall, getUsageByKey, getExternalCallCount } from '@/lib/api-usage'
 import { redis } from '@/lib/redis'
 import { recomputeAllLotsForPart } from '@/lib/lot-pricing'
+import { getCountryFilters } from '@/lib/user-settings'
 
 const MIN_DELAY_MS = 2000
 
 // ---------------------------------------------------------------------------
 // Calculate delay: spread total daily budget evenly over remaining day
 // ---------------------------------------------------------------------------
+
+/**
+ * Ermittelt ob es fuer einen User "Missstaende" gibt (Country-Mismatch:
+ * neueste price_stock-Snapshot enthaelt nur 'XX'-Zeilen, aber User hat
+ * sellerCountries gesetzt). Diese werden priorisiert abgearbeitet mit
+ * dem Budget das nach Maintenance + Reserve uebrig ist.
+ * Return: Anzahl solcher Lots pro User.
+ */
+async function countCountryMismatches(userId: number, sellerCountries: string[]): Promise<number> {
+  const rows = await prisma.$queryRawUnsafe<[{ count: number }]>(
+    `SELECT COUNT(*)::int as count
+     FROM user_watchlists w JOIN parts p ON p.id = w.part_id
+     WHERE w.user_id = $1
+       AND EXISTS (
+         SELECT 1 FROM price_stock ps
+         WHERE ps.part_id = w.part_id
+           AND ps.new_or_used = w.new_or_used
+           AND ps.completeness IS NOT DISTINCT FROM w.completeness
+           AND ps.fetched_at = (
+             SELECT MAX(fetched_at) FROM price_stock
+             WHERE part_id = w.part_id AND new_or_used = w.new_or_used
+           )
+         GROUP BY ps.part_id
+         HAVING NOT bool_or(ps.seller_country = ANY($2::text[]))
+       )`,
+    userId, sellerCountries,
+  )
+  return rows[0]?.count ?? 0
+}
 
 async function calculateDelay(): Promise<number> {
   const keys = await prisma.userApiKey.findMany({
@@ -55,11 +85,31 @@ async function calculateDelay(): Promise<number> {
     prisma.userWatchlist.count({ where: { userId: { in: userIds }, part: { itemType: 'SET' } } }),
     prisma.userWatchlist.count({ where: { userId: { in: userIds }, part: { itemType: { not: 'SET' } } } }),
   ])
-  const callsNeeded = nonSetLots * 2 + setLots * 6
-  const callsPerDay = Math.ceil(callsNeeded / freshDays)
-  const delay = Math.round((86400 / Math.max(1, callsPerDay)) * 1000)
+  const maintenanceCallsPerDay = Math.ceil((nonSetLots * 2 + setLots * 6) / freshDays)
 
-  console.log(`[Crawler] Erhaltungsmodus: ${callsPerDay} Calls/Tag fuer ${nonSetLots} Parts/Minifigs + ${setLots} SETs (×3 wg. C/I/S) in ${freshDays} Tagen`)
+  // Zusatz-Budget fuer Missstaende: 80% des Rests nach Maintenance + externem
+  // Verbrauch (20% Reserve fuer Spikes / manuelle Refreshs / BrickSync-Peaks).
+  let missstandCallsPerDay = 0
+  for (const uid of userIds) {
+    const { sellerCountries } = await getCountryFilters(uid)
+    if (!sellerCountries || sellerCountries.length === 0) continue
+    const missCount = await countCountryMismatches(uid, sellerCountries)
+    if (missCount === 0) continue
+    // Freies Budget nach Maintenance (best-effort Schaetzung pro Tag)
+    const freeAfterMaintenance = Math.max(0, totalLimit - externalCalls - maintenanceCallsPerDay)
+    const boostBudget = Math.floor(freeAfterMaintenance * 0.80)
+    // Nicht mehr Calls einplanen als Missstaende existieren (× 1 Stock-Call
+    // pro Missstand; bei SETs × 3 wegen C/I/S -- konservativ mit ×2 rechnen)
+    missstandCallsPerDay = Math.min(boostBudget, missCount * 2)
+    break  // fuer Solo-Instanz reicht der erste User; bei Multi-User addiert
+  }
+
+  const totalCallsPerDay = maintenanceCallsPerDay + missstandCallsPerDay
+  const delay = Math.round((86400 / Math.max(1, totalCallsPerDay)) * 1000)
+
+  const boostLabel = missstandCallsPerDay > 0
+    ? ` + ${missstandCallsPerDay} Boost (Missstaende)` : ''
+  console.log(`[Crawler] Erhaltungsmodus: ${maintenanceCallsPerDay} Calls/Tag${boostLabel} fuer ${nonSetLots} Parts/Minifigs + ${setLots} SETs (×3 wg. C/I/S) in ${freshDays} Tagen`)
   return Math.max(MIN_DELAY_MS, delay)
 }
 
@@ -131,6 +181,57 @@ async function findNextJob(): Promise<NextJob | null> {
         consumerSecretEnc: Buffer.from(key.consumerSecretEnc),
         tokenValue: key.tokenValue,
         tokenSecretEnc: Buffer.from(key.tokenSecretEnc),
+      }
+    }
+
+    // Prioritaet 2: Country-Mismatch. Wenn User sellerCountries hat und
+    // ein Lot dessen neueste price_stock-Snapshot NUR 'XX'-Zeilen enthaelt,
+    // soll dieser Stock (nicht Sold) priorisiert gecrawlt werden -- die
+    // Sold-Daten haben per-Entry country und sind unabhaengig ok.
+    // Nur ausfuehren wenn nach Maintenance noch Budget da ist (siehe
+    // calculateDelay -- der Delay-Wert bestimmt das Tempo, hier waehlen
+    // wir nur den naechsten Job aus).
+    const { sellerCountries: userSellerCountries } = await getCountryFilters(key.userId)
+    if (userSellerCountries && userSellerCountries.length > 0) {
+      const missstand = await prisma.$queryRawUnsafe<Array<{
+        part_id: number; part_no: string; color_id: number;
+        item_type: string; new_or_used: string;
+      }>>(
+        `SELECT p.id as part_id, p.part_no, p.color_id, p.item_type, w.new_or_used
+         FROM user_watchlists w JOIN parts p ON p.id = w.part_id
+         WHERE w.user_id = $1
+           AND EXISTS (
+             SELECT 1 FROM price_stock ps
+             WHERE ps.part_id = w.part_id
+               AND ps.new_or_used = w.new_or_used
+               AND ps.completeness IS NOT DISTINCT FROM w.completeness
+               AND ps.fetched_at = (
+                 SELECT MAX(fetched_at) FROM price_stock
+                 WHERE part_id = w.part_id AND new_or_used = w.new_or_used
+               )
+             GROUP BY ps.part_id
+             HAVING NOT bool_or(ps.seller_country = ANY($2::text[]))
+           )
+         ORDER BY CASE WHEN w.new_or_used='N' THEN p.last_stock_crawl_n ELSE p.last_stock_crawl_u END ASC NULLS FIRST
+         LIMIT 1`,
+        key.userId, userSellerCountries,
+      )
+      if (missstand[0]) {
+        console.log(`[Crawler] MISSSTAND Country-Mismatch: ${missstand[0].part_no}/${missstand[0].color_id}/${missstand[0].new_or_used}`)
+        return {
+          type: 'stock',  // forced -- nur Stock hat den Country-Mismatch
+          partId: missstand[0].part_id,
+          partNo: missstand[0].part_no,
+          colorId: missstand[0].color_id,
+          itemType: missstand[0].item_type,
+          newOrUsed: missstand[0].new_or_used as 'N' | 'U',
+          userId: key.userId,
+          apiKeyId: key.id,
+          consumerKey: key.consumerKey,
+          consumerSecretEnc: Buffer.from(key.consumerSecretEnc),
+          tokenValue: key.tokenValue,
+          tokenSecretEnc: Buffer.from(key.tokenSecretEnc),
+        }
       }
     }
 
@@ -328,7 +429,6 @@ async function processStock(job: NextJob, client: BrickLinkClient): Promise<numb
   // User-Setting: sellerCountries -> pro Country separater BL-Call mit
   // country_code. BL filtert Server-seitig auf Stores in dem Land.
   // Ohne User-Setting: weltweit wie bisher (seller_country='XX').
-  const { getCountryFilters } = await import('@/lib/user-settings')
   const { sellerCountries } = await getCountryFilters(job.userId)
   const stockCountries: Array<string | null> =
     (sellerCountries && sellerCountries.length > 0) ? sellerCountries : [null]

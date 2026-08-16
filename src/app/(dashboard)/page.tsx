@@ -22,6 +22,15 @@ interface Stats {
   partsNeedUpdate: number;
   doneTodaySold: number;
   doneTodayStock: number;
+  needsUpdateTotal?: number;
+  needsUpdateBreakdown?: {
+    neu: number;
+    countryMismatch: number;
+    staleCache: number;
+    staleData: number;
+  };
+  hasSellerCountryFilter?: boolean;
+  boostCallsPerDay?: number;
 }
 
 export default function DashboardPage() {
@@ -103,10 +112,44 @@ export default function DashboardPage() {
 
         <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
           <p className="text-sm text-gray-500">Brauchen Update</p>
-          <p className="mt-2 text-3xl font-bold text-yellow-600">{fmt(stats.partsNeedUpdate)}</p>
-          <p className="mt-1 text-xs text-gray-400">
-            ohne oder aelter als {stats.freshDays} Tage
+          <p className="mt-2 text-3xl font-bold text-yellow-600">
+            {fmt(stats.needsUpdateTotal ?? stats.partsNeedUpdate)}
           </p>
+          {stats.needsUpdateBreakdown ? (
+            <ul className="mt-2 space-y-0.5 text-xs text-gray-500">
+              {stats.needsUpdateBreakdown.neu > 0 && (
+                <li className="flex items-center justify-between">
+                  <span>Neu (nie gecrawlt)</span>
+                  <span className="font-mono text-gray-700">{fmt(stats.needsUpdateBreakdown.neu)}</span>
+                </li>
+              )}
+              {stats.needsUpdateBreakdown.countryMismatch > 0 && (
+                <li className="flex items-center justify-between">
+                  <span>Land-Mismatch (Stock nur weltweit)</span>
+                  <span className="font-mono text-gray-700">{fmt(stats.needsUpdateBreakdown.countryMismatch)}</span>
+                </li>
+              )}
+              {stats.needsUpdateBreakdown.staleCache > 0 && (
+                <li className="flex items-center justify-between">
+                  <span>Cache veraltet</span>
+                  <span className="font-mono text-gray-700">{fmt(stats.needsUpdateBreakdown.staleCache)}</span>
+                </li>
+              )}
+              {stats.needsUpdateBreakdown.staleData > 0 && (
+                <li className="flex items-center justify-between">
+                  <span>Aelter als {stats.freshDays} Tage</span>
+                  <span className="font-mono text-gray-700">{fmt(stats.needsUpdateBreakdown.staleData)}</span>
+                </li>
+              )}
+              {(stats.needsUpdateTotal ?? 0) === 0 && (
+                <li className="italic text-gray-400">Alles aktuell</li>
+              )}
+            </ul>
+          ) : (
+            <p className="mt-1 text-xs text-gray-400">
+              ohne oder aelter als {stats.freshDays} Tage
+            </p>
+          )}
         </div>
       </div>
 
@@ -136,6 +179,16 @@ export default function DashboardPage() {
               <p className="mt-1 text-xs text-gray-500">
                 ~{fmt(stats.maintenanceCallsPerDay)} Calls/Tag fuer {fmt(stats.watchlistCount)} Lots in {stats.freshDays} Tagen
               </p>
+              {(stats.boostCallsPerDay ?? 0) > 0 && (
+                <p className="mt-1 text-xs text-yellow-700">
+                  + {fmt(stats.boostCallsPerDay!)} Boost fuer {fmt(stats.needsUpdateBreakdown?.countryMismatch ?? 0)} Missstaende
+                  {stats.needsUpdateBreakdown && stats.needsUpdateBreakdown.countryMismatch > 0 && (
+                    <span className="text-gray-400">
+                      {" "}(~{Math.ceil(stats.needsUpdateBreakdown.countryMismatch / (stats.boostCallsPerDay! / 2 || 1))} Tage bis durch)
+                    </span>
+                  )}
+                </p>
+              )}
             </>
           )}
         </div>

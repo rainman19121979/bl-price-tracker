@@ -96,13 +96,18 @@ export async function GET(
       ...queryArgs
     ),
     (async () => {
+      // seller_country: XX-Fallback zusaetzlich matchen (Bestandsdaten +
+      // wenn Country-Crawl noch nicht durchgelaufen)
       const stockArgs: (number | string[] | string)[] = [part.id];
       let q = 2;
       let stockCf = "";
-      if (sellerCountries) { stockCf += ` AND seller_country = ANY($${q++})`; stockArgs.push(sellerCountries); }
+      if (sellerCountries) {
+        stockCf += ` AND (seller_country = ANY($${q++}) OR seller_country = 'XX')`;
+        stockArgs.push(sellerCountries);
+      }
       if (effectiveCompleteness) { stockCf += ` AND completeness = $${q++}`; stockArgs.push(effectiveCompleteness); }
       else                       { stockCf += ` AND completeness IS NULL`; }
-      return prisma.$queryRawUnsafe<StockStats[]>(
+      return prisma.$queryRawUnsafe<Array<StockStats & { source_countries: string[] }>>(
         `WITH latest AS (
           SELECT DISTINCT ON (new_or_used) new_or_used, fetched_at
           FROM price_stock WHERE part_id = $1 ${stockCf}
@@ -113,7 +118,8 @@ export async function GET(
           PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ps.unit_price)::float as median_price,
           (SUM(ps.unit_price * ps.quantity) / NULLIF(SUM(ps.quantity), 0))::float as qty_avg_price,
           COUNT(*)::int as total_offers,
-          COALESCE(SUM(ps.quantity), 0)::int as total_quantity
+          COALESCE(SUM(ps.quantity), 0)::int as total_quantity,
+          ARRAY_AGG(DISTINCT ps.seller_country) as source_countries
         FROM price_stock ps
         JOIN latest l ON ps.new_or_used = l.new_or_used AND ps.fetched_at = l.fetched_at
         WHERE ps.part_id = $1 ${stockCf}
@@ -142,7 +148,7 @@ export async function GET(
     };
   }
 
-  function buildStock(s: StockStats | undefined) {
+  function buildStock(s: (StockStats & { source_countries?: string[] }) | undefined) {
     if (!s) return null;
     return {
       avgPrice: s.avg_price,
@@ -150,6 +156,10 @@ export async function GET(
       qtyAvgPrice: s.qty_avg_price,
       totalOffers: s.total_offers,
       totalQuantity: s.total_quantity,
+      // Welche seller_countries stehen in den zurueckgegebenen Zeilen?
+      // Fuer UI-Label: nur 'XX' bedeutet weltweiter Fallback (kein Country-
+      // spezifischer Crawl vorhanden).
+      sourceCountries: s.source_countries ?? [],
     };
   }
 

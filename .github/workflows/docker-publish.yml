@@ -26,6 +26,11 @@ jobs:
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
+          # QEMU-Version pinnen: 'latest' (default) hat einen bekannten Bug mit
+          # Node.js/Next.js-Builds unter ARM64-Emulation -- SWC/esbuild-Binaries
+          # crashen mit "uncaught target signal 4 (Illegal instruction)".
+          # qemu-v7.0.0-28 ist bekannt stabil fuer next build.
+          image: tonistiigi/binfmt:qemu-v7.0.0-28
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4

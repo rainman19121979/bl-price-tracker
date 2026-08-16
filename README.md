@@ -177,7 +177,7 @@ Beispiel: du bist deutscher Händler und verkaufst nur nach DE, AT, CH.
 - **Verkäuferländer:** DE (nur DE-Verkäufer werden für Marktpreis-Berechnung angeschaut — deine echte Konkurrenz)
 - **Versandländer:** DE, AT, CH (nur Verkäufe an Käufer in diesen Ländern zählen)
 
-Kannst du jederzeit umstellen ohne neu zu crawlen — die Daten werden immer weltweit geholt und nur bei der Anzeige gefiltert.
+> **Wichtig für aktuelle Angebote:** BrickLink liefert bei den *aktuellen Angeboten* (Stock) keine Ländercodes pro Angebot — deshalb crawlt der Tracker Stock pro Verkäuferland separat mit einem Server-seitigen BL-Filter (`country_code=DE`). Nach einer Änderung deines Verkäuferlands rotiert der Crawler alle Teile nach und nach auf das neue Land um — bei 10.000 Lots und 1000 Calls/Tag Limit ca. **10-14 Tage**. In der Zwischenzeit zeigt die Detail-Seite ehrlich `(weltweit — DE-Crawl steht noch aus)` für Teile die noch nicht rotiert sind. Bei den *Verkäufen* (Sold) ist der Filter sofort wirksam, weil BL dort pro Verkauf einen Länder-Code mitliefert.
 
 ![Länderfilter für Verkäufer und Käufer](docs/04-settings-countries.png)
 
@@ -450,6 +450,20 @@ docker compose up -d              # Container mit neuem Image starten
 
 **Update-Anzeige in der App:** In der Sidebar unten steht die aktuelle Version. Sobald auf GitHub eine neuere Release veröffentlicht ist, erscheint neben der Versionsnummer ein pulsierender gelber Punkt mit dem Text "Update vX.Y.Z". Klick darauf öffnet ein Popup mit Release-Notes-Link und dem fertigen Update-Befehl zum Kopieren. Der Check läuft admin-seitig alle 6 Stunden gegen die GitHub-API (Redis-cached, kein Traffic-Impact).
 
+### Crawler-Priorisierung: Missstände
+
+Der Crawler arbeitet mit drei Prioritätsebenen:
+
+1. **Höchste Priorität — Watchlist-Änderungen:** Wenn du im BL-Store etwas hinzufügst/entfernst oder eine Menge/Preis-Änderung passiert, wird der Auto-Sync diese Änderungen mit `changedAt` markieren. Der Crawler holt diese Teile bevorzugt.
+
+2. **Mittlere Priorität — Missstände (neu):** Teile deren Daten nicht deinen aktuellen Einstellungen entsprechen — konkret **Country-Mismatch**: die neueste Stock-Snapshot enthält nur `XX` (weltweit) aber du hast einen Verkäuferland-Filter (z.B. DE) gesetzt. Der Crawler holt für diese Teile priorisiert einen neuen Stock-Snapshot mit dem Server-Filter `country_code=DE`.
+
+3. **Baseline — Freshness-Rotation:** die normale Wartungsrotation über deine `freshDays`-Einstellung (Default 90).
+
+**Budget-Aufteilung:** Nach dem Maintenance-Bedarf (Basis-Rotation) und dem geschätzten externen Verbrauch (BrickSync etc.) werden **80% des freien Rests** für Missstand-Priorisierung verwendet. 20% bleiben als Reserve für Spikes (manuelle Refreshs, BrickSync-Bursts).
+
+Im Dashboard siehst du unter **"Brauchen Update"** die Priority-Klassifikation der Teile die noch nachziehen müssen (Neu, Land-Mismatch, Cache veraltet, älter als N Tage — jedes Teil in genau einem Bucket). Unter **"Crawler Status"** siehst du falls Boost aktiv ist eine zweite Zeile `+ X Boost fuer Y Missstaende (~Z Tage bis durch)`.
+
 Migrations werden beim Start automatisch angewendet.
 
 **Lokal bauen statt GHCR-Image nutzen** (nur für Devs / Forks):
@@ -542,25 +556,81 @@ Jede Response enthält `apiUsage: {used, external, limit, remaining}` — dein a
 
 ### BrickStore-Extension (Preise direkt in BrickStore importieren)
 
-Statt dem umständlichen "BSX-Export vom Tracker → in BrickStore Preis-Spalte kopieren"-Workflow gibt es jetzt eine **native BrickStore-Extension** unter [extensions/brickstore/bricklink-price-tracker.bs.qml](./extensions/brickstore/bricklink-price-tracker.bs.qml). Ein Klick auf "Extras → Preise aus Price Tracker holen..." und BrickStore fragt in Batches die Empfehlungspreise (+ Rabatte + Lock-Zustand) aus dem Tracker und schreibt sie direkt in die aktuell geöffnete BSX.
+Statt dem umständlichen "BSX-Export vom Tracker → in BrickStore Preis-Spalte kopieren"-Workflow gibt es eine **native BrickStore-Extension** unter [extensions/brickstore/bricklink-price-tracker.bs.qml](./extensions/brickstore/bricklink-price-tracker.bs.qml). Ein Klick auf **Extras → Preise aus Price Tracker holen…** und BrickStore fragt in Batches die Empfehlungspreise + Rabatte + Lock-Zustand aus dem Tracker und schreibt sie direkt in die aktuell geöffnete BSX.
 
-**Installation:**
+Die Extension ist QML/JavaScript, läuft nativ in BrickStore ohne extra Compile-Schritt, kein Backend-Dienst, keine Abhängigkeit. Netzwerk-Zugriff auf die Tracker-API per Bearer-Token, alles direkt zwischen BrickStore-Instanz und deinem Tracker.
 
-1. `extensions/brickstore/bricklink-price-tracker.bs.qml` aus dem Repo ziehen
-2. Die zwei Zeilen `trackerUrl` und `trackerToken` am Anfang der Datei ausfüllen (Token gibt's in der Tracker-UI unter Einstellungen → API-Tokens)
-3. Datei in den BrickStore-Extensions-Ordner kopieren:
-   - **Linux:** `~/.local/share/BrickStore/extensions/`
-   - **macOS:** `~/Library/Application Support/BrickStore/extensions/`
-   - **Windows:** `%APPDATA%\BrickStore\extensions\`
-4. In BrickStore: **Extras → Reload user scripts**
+#### Installation (Schritt für Schritt)
 
-**Was die Extension pro Lot macht:**
+**1) Extension-Datei aus dem Repo holen**
 
-- **Preis:** wenn `priceLocked=true` im Tracker → schreibt deinen manuellen `myPrice`; sonst den `suggestedPrice` aus deiner Preisformel
-- **Rabatt:** schreibt den `saleRate` aus dem Tracker (0-99%)
-- **Nur `Price` + `Sale` werden angefasst** — `Cost`, `Comments`, `Remarks`, `Quantity` bleiben unangetastet
-- Selection-aware: markiere Lots vorher → nur die werden aktualisiert; ohne Selektion → alle Lots
-- Progress-Overlay mit Cancel-Button, Zusammenfassung am Ende inkl. API-Budget
+Rechtsklick → "Speichern unter" auf diesen Roh-Datei-Link:
+```
+https://raw.githubusercontent.com/rainman19121979/bl-price-tracker/main/extensions/brickstore/bricklink-price-tracker.bs.qml
+```
+
+**2) Token im Tracker anlegen**
+
+Im Tracker: **Einstellungen → API-Tokens → Neuen Token anlegen** → 32-64-Zeichen-String kopieren. Gib dem Token einen Namen wie "BrickStore" damit du ihn später erkennst.
+
+**3) Datei mit einem Text-Editor öffnen** (Windows: Notepad reicht; macOS: TextEdit; Linux: nano/gedit) und die zwei Zeilen am Anfang anpassen:
+
+```qml
+readonly property string trackerUrl: "http://YOUR_TRACKER_HOST:3000"
+readonly property string trackerToken: "PASTE_YOUR_TOKEN_HERE"
+```
+
+- **`trackerUrl`**: die Adresse unter der du deinen Tracker vom BrickStore-Rechner aus erreichst. Beispiele: `http://100.114.180.28:3000` (Tailscale-IP), `http://192.168.1.42:3000` (LAN-IP), `https://tracker.deine-domain.de` (falls Public-Domain). **Ohne** trailing Slash.
+- **`trackerToken`**: den kopierten Token einsetzen.
+
+Speichern.
+
+**4) Datei in den BrickStore-Extensions-Ordner kopieren**
+
+Der Pfad ist plattformabhängig:
+
+- **Windows:** `C:\Users\<DEIN_USERNAME>\AppData\Roaming\BrickStore\extensions\`
+  - Kürzel im Explorer: `%APPDATA%\BrickStore\extensions\` in die Adresszeile eingeben und Enter drücken
+  - Der `AppData`-Ordner ist standardmäßig versteckt — im Explorer unter Ansicht → "Ausgeblendete Elemente" aktivieren, oder direkt den Pfad in die Adresszeile eingeben
+- **macOS:** `~/Library/Application Support/BrickStore/extensions/`
+  - Im Finder: **Gehe zu → Ordner…** (Cmd+Shift+G), Pfad einfügen
+  - `~/Library` ist standardmäßig versteckt
+- **Linux:** `~/.local/share/BrickStore/extensions/`
+
+Wenn der `extensions`-Ordner nicht existiert, einfach anlegen. Die `.bs.qml`-Datei muss direkt drin liegen (nicht in einem Unterordner).
+
+**5) Extension in BrickStore laden**
+
+BrickStore öffnen → **Extras → Reload user scripts** (kein Neustart nötig). Wenn alles gut lief, siehst du in den Log-Meldungen `[ ok ] bricklink-price-tracker.bs.qml`. Bei einem Fehler bekommst du ein Popup mit der Fehlermeldung — sag mir Bescheid und ich helfe fixen.
+
+#### Verwendung
+
+1. BSX-Datei in BrickStore öffnen (oder den Store-Bestand direkt runterladen: Datei → BrickLink-Store → Aktualisieren)
+2. **Optional:** einzelne Lots markieren (Strg+Klick / Shift+Klick). Wenn nichts markiert ist, verarbeitet die Extension **alle** Lots im Dokument.
+3. **Extras → Preise aus Price Tracker holen…**
+4. Progress-Overlay läuft durch (bei 5000 Lots ca. 30-60 Sekunden, je nach Netzwerk und Tracker-Antwortzeit)
+5. Zusammenfassungs-Dialog am Ende: `Aktualisiert: X Lots — davon Y mit gesperrtem Preis, übersprungen Z ohne Preis`
+6. BSX prüfen (Preis-Spalte hat neue Werte), speichern, zu BL hochladen wie gewohnt
+
+#### Was die Extension pro Lot macht
+
+- **Preis** (`Price`-Spalte): wenn im Tracker `priceLocked=true` (Schloss-Icon in der Watchlist) → schreibt deinen manuellen `myPrice` aus dem Tracker. Sonst → schreibt den `suggestedPrice` aus deiner Preisformel.
+- **Rabatt** (`Sale`-Spalte, 0-99%): schreibt den `saleRate` aus dem Tracker.
+- **Sicherheits-Guard:** Preise = 0 werden **nie** geschrieben (verhindert versehentliche Gratis-Angebote wenn ein Teil keine Marktdaten hat). Solche Lots werden übersprungen und in der Zusammenfassung gezählt.
+- **Angetastet werden nur `Price` und `Sale`** — `Cost`, `Comments`, `Remarks`, `Quantity`, `LotID`, `DateAdded`, alles andere bleibt unverändert.
+- Selection-aware: markierte Lots oder alle im Dokument.
+- Progress-Overlay mit Cancel-Button. Batch-Größe 100 Lots pro API-Call.
+- Fehler pro Lot (Part nicht im Tracker, API-Limit erschöpft) werden übersprungen und in der Zusammenfassung mit Beispielen aufgelistet — die betroffenen Lots bleiben unverändert.
+
+#### Häufige Fragen
+
+- **"Wie oft soll ich das laufen lassen?"** — Vor jedem BL-Upload sinnvoll. Der Tracker aktualisiert Preise im Hintergrund kontinuierlich, deine BSX bekommt aber nur die Werte die zum Zeitpunkt des Extension-Laufs im Tracker stehen.
+- **"Was passiert wenn ein Teil sowohl im Tracker als auch im BrickStore ist, aber die Inventar-ID sich geändert hat (nach Verkauf + Nachschub)?"** — Der Rabatt/Lock-Zustand hängt am Watchlist-Eintrag (per `blInventoryId`). Bei einer neuen ID sind Rabatt/Lock nicht gesetzt, aber der `suggestedPrice` wird trotzdem korrekt berechnet (matched über Part-Nr + Farbe + Zustand). Manuellen Rabatt/Lock musst du im Tracker für den neuen Lot einmal wieder setzen.
+- **"Was wenn der Tracker gerade down ist?"** — Die Extension zeigt einen Netzwerk-Fehler, die BSX bleibt unverändert.
+
+#### API-Budget-Impact
+
+Die Extension nutzt den `POST /api/external/price/batch`-Endpoint gegen den Tracker (Bearer-Auth). Das kostet **KEINE BrickLink-API-Calls** — der Tracker liefert die bereits gecachten Werte aus. Nur wenn ein Teil im Tracker "stale" ist (letzter Crawl älter als deine `freshDays`-Einstellung), triggert er einen frischen BL-Fetch. Bei aktueller Watchlist ist das selten.
 
 ---
 

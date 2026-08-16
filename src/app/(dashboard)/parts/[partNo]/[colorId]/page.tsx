@@ -39,6 +39,7 @@ interface StockData {
   qtyAvgPrice: number;
   totalOffers: number;
   totalQuantity: number;
+  sourceCountries?: string[];  // seller_countries der zurueckgegebenen Zeilen
 }
 
 interface Sale {
@@ -85,7 +86,21 @@ export default function PartDetailPage() {
     if (filters.shippingCountries) parts.push(`Käufer: ${filters.shippingCountries.join(",")}`);
     return parts.length ? ` (${parts.join(" | ")})` : " (weltweit)";
   })();
-  const stockLabel = filters.sellerCountries ? ` (${filters.sellerCountries.join(",")})` : " (weltweit)";
+  // Stock-Label reflektiert was tatsaechlich in den Daten steht (sourceCountries
+  // aus dem Backend), nicht nur was der User in seinen Settings hat. Wenn User
+  // 'DE' will aber die Zeilen sind noch alle 'XX' (weltweit, kein Country-Crawl
+  // durchgelaufen), soll das Label ehrlich sein.
+  const stockLabel = (() => {
+    const wanted = filters.sellerCountries
+    const actual = stockPrice?.sourceCountries ?? []
+    if (!wanted || wanted.length === 0) return " (weltweit)"
+    const hasWanted = actual.some(c => wanted.includes(c))
+    const hasFallback = actual.includes("XX")
+    if (hasWanted && !hasFallback) return ` (${wanted.join(",")})`
+    if (hasWanted && hasFallback) return ` (${wanted.join(",")} + weltweiter Fallback)`
+    if (hasFallback && !hasWanted) return ` (weltweit — ${wanted.join(",")}-Crawl steht noch aus)`
+    return ` (${wanted.join(",")})`  // keine Daten, aber Label bleibt konsistent
+  })();
 
   const conditionLabel = condition === "N" ? "Neu" : "Gebraucht";
   const conditionColor = condition === "N" ? "green" : "amber";
