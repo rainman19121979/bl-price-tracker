@@ -23,7 +23,6 @@
 import BrickStore 1.1
 import BrickLink 1.1
 import QtQuick
-import QtQuick.Dialogs
 
 Script {
     name: "BrickLink Price Tracker"
@@ -37,29 +36,17 @@ Script {
 
     readonly property int batchSize: 100  // Tracker akzeptiert bis 100 pro Batch
 
-    // Info-Dialog fuer Zusammenfassung + async-Fehler.
-    // BrickStore's `throw new Error()` funktioniert nur bei synchronen
-    // Fehlern im actionFunction-Kontext (Script.cpp:91 fangt exceptions und
-    // reicht sie an UIHelpers::warning weiter). Async-Handler (xhr) laufen
-    // ausserhalb des Try-Catch -- deshalb brauchen wir hier ein echtes
-    // MessageDialog.
-    //
-    // ACHTUNG -- unverifiziert bei bestimmten BrickStore-Builds: bei einem
-    // ersten Test triggerte der Dialog nicht (Progress-Overlay schliesst sich
-    // stumm). Moegliche Ursachen: Qt6-vs-Qt5-Modulname-Unterschied fuer
-    // QtQuick.Dialogs, oder MessageDialog-Properties heissen anders in Qt6.
-    // Falls's bei dir auch nicht triggert: `console.log(msg)` in showInfo()
-    // aktivieren -- dann ist der Text zumindest in Extras -> Developer
-    // Console sichtbar.
-    MessageDialog {
-        id: infoDialog
-        title: qsTr("BrickLink Price Tracker")
-        buttons: MessageDialog.Ok
-    }
-    function showInfo(msg) {
-        infoDialog.text = msg
-        infoDialog.open()
-        console.log("[BL Price Tracker] " + msg)  // Fallback wenn Dialog nicht triggert
+    // KEIN UI-Dialog fuer die Zusammenfassung:
+    // MessageDialog aus QtQuick.Dialogs wird in BrickStore-Extension-Scripts
+    // nicht sichtbar (verifiziert 2026-08-16 -- Dialog wird instanziiert und
+    // .visible=true gesetzt aber BrickStore blockt die Anzeige weil der
+    // Extension-Kontext kein Window-Parent hat). Deshalb geht der Report
+    // nur in die Developer Console (Extras -> Developer Console).
+    // Sync-Fehler beim Start (nicht konfiguriert, kein Dokument, etc.) sind
+    // per `throw new Error(...)` weiter als Popup sichtbar -- die werden von
+    // BrickStore direkt gefangen.
+    function reportLog(msg) {
+        console.log("[BL Price Tracker] " + msg)
     }
 
     ExtensionScriptAction {
@@ -209,7 +196,7 @@ Script {
                 if (xhr.readyState !== XMLHttpRequest.DONE) return
                 if (xhr.status !== 200) {
                     doc.endBlockingOperation()
-                    showInfo(qsTr(
+                    reportLog(qsTr(
                         "Tracker-API antwortete mit HTTP %1:\n%2"
                     ).arg(xhr.status).arg(xhr.responseText.slice(0, 300)))
                     return
@@ -219,7 +206,7 @@ Script {
                     var resp = JSON.parse(xhr.responseText)
                 } catch (e) {
                     doc.endBlockingOperation()
-                    showInfo(qsTr("Antwort ist kein gueltiges JSON"))
+                    reportLog(qsTr("Antwort ist kein gueltiges JSON"))
                     return
                 }
 
@@ -293,7 +280,7 @@ Script {
             }
             xhr.onerror = function() {
                 doc.endBlockingOperation()
-                showInfo(qsTr("Netzwerk-Fehler beim Kontakt mit dem Tracker."))
+                reportLog(qsTr("Netzwerk-Fehler beim Kontakt mit dem Tracker."))
             }
             xhr.send(JSON.stringify({ items: items }))
         }
@@ -329,6 +316,6 @@ Script {
             msg += qsTr("\nBrickLink-API-Budget: %1/%2 (Rest %3)")
                 .arg(apiUsage.used).arg(apiUsage.limit).arg(apiUsage.remaining)
         }
-        showInfo(msg)  // async-safe -- MessageDialog wird sichtbar
+        reportLog(msg)  // in Extras -> Developer Console sichtbar
     }
 }
