@@ -254,20 +254,89 @@ Das Dashboard rechnet live: **Crawler-Verbrauch + Extern-Schätzung + Rest** = d
 
 ## Preisempfehlungen in deinen Store übertragen
 
-**Nichts passiert automatisch** — du behältst immer die Kontrolle. Der Workflow über BrickStore geht so:
+**Nichts passiert automatisch** — du behältst immer die Kontrolle. Es gibt zwei Wege wie die Preise vom Tracker in deinen BL-Store kommen:
+
+### Weg A (empfohlen): BrickStore-Extension — ein Klick, kein Copy-Paste
+
+Die **native BrickStore-Extension** unter [extensions/brickstore/bricklink-price-tracker.bs.qml](./extensions/brickstore/bricklink-price-tracker.bs.qml) macht den ganzen Workflow zu einem einzigen Klick: **Extras → Preise aus Price Tracker holen…** — BrickStore fragt in Batches beim Tracker die Empfehlungspreise + Rabatte + Lock-Zustand ab und schreibt sie direkt in die aktuell geöffnete BSX.
+
+Die Extension ist QML/JavaScript, läuft nativ in BrickStore, kein Backend-Dienst, keine Abhängigkeit. Netzwerk-Zugriff zwischen BrickStore und deinem Tracker per Bearer-Token.
+
+#### Installation (einmalig, Schritt für Schritt)
+
+**1) Extension-Datei aus dem Repo holen** — Rechtsklick → "Speichern unter" auf diesen Roh-Datei-Link:
+```
+https://raw.githubusercontent.com/rainman19121979/bl-price-tracker/main/extensions/brickstore/bricklink-price-tracker.bs.qml
+```
+
+**2) Token im Tracker anlegen** — im Tracker: **Einstellungen → API-Tokens → Neuen Token anlegen** → 32-64-Zeichen-String kopieren. Gib dem Token einen Namen wie "BrickStore" damit du ihn später erkennst.
+
+**3) Datei mit einem Text-Editor öffnen** (Windows: Notepad reicht; macOS: TextEdit; Linux: nano/gedit) und die zwei Zeilen am Anfang anpassen:
+
+```qml
+readonly property string trackerUrl: "http://YOUR_TRACKER_HOST:3000"
+readonly property string trackerToken: "PASTE_YOUR_TOKEN_HERE"
+```
+
+- **`trackerUrl`**: die Adresse unter der du deinen Tracker vom BrickStore-Rechner aus erreichst. Beispiele: `http://100.114.180.28:3000` (Tailscale-IP), `http://192.168.1.42:3000` (LAN-IP), `https://tracker.deine-domain.de` (Public-Domain). Ohne trailing Slash.
+- **`trackerToken`**: den kopierten Token einsetzen.
+
+Speichern.
+
+**4) Datei in den BrickStore-Extensions-Ordner kopieren** — plattformabhängig:
+
+- **Windows:** `C:\Users\<DEIN_USERNAME>\AppData\Roaming\BrickStore\extensions\`
+  - Kürzel im Explorer: `%APPDATA%\BrickStore\extensions\` in die Adresszeile eingeben und Enter drücken
+  - Der `AppData`-Ordner ist standardmäßig versteckt — im Explorer unter Ansicht → "Ausgeblendete Elemente" aktivieren, oder direkt den Pfad in die Adresszeile eingeben
+- **macOS:** `~/Library/Application Support/BrickStore/extensions/`
+  - Im Finder: **Gehe zu → Ordner…** (Cmd+Shift+G), Pfad einfügen
+  - `~/Library` ist standardmäßig versteckt
+- **Linux:** `~/.local/share/BrickStore/extensions/`
+
+Wenn der `extensions`-Ordner nicht existiert, einfach anlegen. Die `.bs.qml`-Datei muss direkt drin liegen (nicht in einem Unterordner).
+
+**5) Extension in BrickStore laden** — **Extras → Reload user scripts** (kein Neustart nötig). In den Log-Meldungen sollte `[ ok ] bricklink-price-tracker.bs.qml` erscheinen.
+
+#### Verwendung
+
+1. BSX-Datei in BrickStore öffnen (oder Store-Bestand direkt runterladen: Datei → BrickLink-Store → Aktualisieren)
+2. **Optional:** einzelne Lots markieren (Strg+Klick / Shift+Klick). Ohne Markierung: alle Lots im Dokument.
+3. **Extras → Preise aus Price Tracker holen…**
+4. Progress-Overlay läuft durch (bei 5000 Lots ca. 30-60 Sek je nach Netzwerk)
+5. Zusammenfassungs-Report landet in **Extras → Developer Console** (BrickStore erlaubt in Extensions keinen Popup-Dialog aus dem async-Kontext — siehe FAQ unten)
+6. BSX prüfen (Preis-Spalte hat neue Werte), speichern, zu BL hochladen wie gewohnt
+
+#### Was die Extension pro Lot macht
+
+- **Preis** (`Price`-Spalte): wenn im Tracker `priceLocked=true` (Schloss-Icon in der Watchlist) → schreibt deinen manuellen `myPrice`. Sonst → `suggestedPrice` aus deiner Preisformel.
+- **Rabatt** (`Sale`-Spalte, 0-99%): schreibt `saleRate` aus dem Tracker.
+- **Sicherheits-Guard:** Preise = 0 werden **nie** geschrieben (verhindert versehentliche Gratis-Angebote). Solche Lots werden übersprungen.
+- **Angetastet werden nur `Price` und `Sale`** — `Cost`, `Comments`, `Remarks`, `Quantity`, `LotID`, `DateAdded` bleiben unverändert.
+- Selection-aware: markierte Lots oder alle im Dokument.
+- Batch-Größe 100 Lots pro API-Call. Fehler pro Lot (Part nicht im Tracker, API-Limit erschöpft) werden übersprungen und im Report gezählt.
+
+#### FAQ
+
+- **"Wo sehe ich das Ergebnis?"** — Die Preis-Spalte in BrickStore ist der schnellste Check. Für den detaillierten Report (Aktualisiert X, Übersprungen Y, API-Budget verbraucht): **Extras → Developer Console** öffnen. Warum kein Popup? BrickStore erlaubt Extensions keine QML-Dialoge aus async-Kontext (verifiziert 2026-08-16 — `MessageDialog.open()` wird stumm geblockt).
+- **"Wie oft soll ich das laufen lassen?"** — Vor jedem BL-Upload. Der Tracker aktualisiert Preise kontinuierlich im Hintergrund, deine BSX bekommt aber nur den Wert der zum Zeitpunkt des Extension-Laufs im Tracker steht.
+- **"Was wenn ich einen Lot in BrickStore neu anlege der noch nicht im Tracker ist?"** — Die Extension crawlt das Teil beim Backend automatisch nach (kostet 2 BL-Calls für PART/MINIFIG, 6 für SET) und schreibt den Empfehlungspreis rein. Praktisch als "Preisvorschau" für neue Teile bevor du sie zu BL hochlädst — verbraucht aber dein BL-API-Budget.
+- **"Was passiert wenn ein Teil sowohl im Tracker als auch im BrickStore ist, aber die Inventar-ID sich geändert hat (nach Verkauf + Nachschub)?"** — Rabatt/Lock hängt am Watchlist-Eintrag (per `blInventoryId`). Bei einer neuen ID sind Rabatt/Lock nicht gesetzt, aber der `suggestedPrice` wird korrekt berechnet (matched über Part-Nr + Farbe + Zustand). Manuellen Rabatt/Lock musst du im Tracker für den neuen Lot einmal wieder setzen.
+- **"Was wenn der Tracker gerade down ist?"** — Die Extension zeigt einen Netzwerk-Fehler in der Console, die BSX bleibt unverändert.
+
+### Weg B (manuell): BSX-Export + Copy-Values in BrickStore
+
+Falls du die Extension nicht installieren willst oder mal ohne sie arbeiten musst — der Original-Workflow funktioniert weiter:
 
 1. **In dieser App:** `/watchlist` → oben rechts **"BSX-Export"** herunterladen → Datei `pricetracker-empf-preise.bsx` landet in deinen Downloads
 2. **In BrickStore öffnen:** Datei → Öffnen → die heruntergeladene BSX-Datei
 3. **Deinen aktuellen Shop-Bestand daneben öffnen:** in BrickStore auf den Store-Tab → Store-Bestand herunterladen (falls noch nicht offen)
-4. **In das Shop-Bestand-Fenster wechseln** (nicht der Export!) — das ist wichtig, denn Ziel ist es dorthin die Preise zu kopieren
+4. **In das Shop-Bestand-Fenster wechseln** (nicht der Export!) — Ziel ist dorthin die Preise zu kopieren
 5. **Alles im Shop-Bestand markieren** (Strg+A)
 6. Menü **Bearbeiten → "Werte von anderem Dokument kopieren…"**
 7. Im Dialog: die Export-Datei `pricetracker-empf-preise.bsx` auswählen → Weiter
 8. Im Feld-Dialog: bei **Preis** auf **"Kopieren"** klicken, für **alle anderen Felder** auf **"Ignorieren"** klicken (muss aktiv gesetzt werden — Vorauswahl ist anders!) → **Abschließen**
 9. BrickStore übernimmt nur die neuen Preise ins Shop-Bestand-Dokument, alles andere bleibt wie es war
 10. Prüfen ob es passt, dann wie gewohnt: **BrickLink → Store → Upload / Aktualisieren** — deine Preise sind live
-
-**Warum dieser Umweg?** Der Export enthält zwar alle Felder für einen theoretischen 1:1-Round-trip, aber der sicherste Weg ist: **Shop-Bestand bleibt das Original-Dokument** und wir kopieren nur die Preis-Spalte rein. So kann garantiert nichts anderes verändert werden — nicht mal wenn im Export ein Feld fehlt oder abweicht.
 
 > **Sicherheitsnetz im Export:** Nur Lots mit BrickLink-Inventory-ID (also welche die per Sync kamen) werden exportiert. Manuell hinzugefügte Lots ohne ID bleiben draußen, weil sie beim Kopieren keinen Match-Partner im Shop-Bestand hätten.
 
@@ -554,85 +623,7 @@ Jede Response enthält `apiUsage: {used, external, limit, remaining}` — dein a
 
 ![API-Tokens verwalten mit Copy-Paste-Curl-Beispielen](docs/05-settings-api.png)
 
-**Volle Dokumentation mit Beispielen:** [API.md](./API.md)
-
-### BrickStore-Extension (Preise direkt in BrickStore importieren)
-
-Statt dem umständlichen "BSX-Export vom Tracker → in BrickStore Preis-Spalte kopieren"-Workflow gibt es eine **native BrickStore-Extension** unter [extensions/brickstore/bricklink-price-tracker.bs.qml](./extensions/brickstore/bricklink-price-tracker.bs.qml). Ein Klick auf **Extras → Preise aus Price Tracker holen…** und BrickStore fragt in Batches die Empfehlungspreise + Rabatte + Lock-Zustand aus dem Tracker und schreibt sie direkt in die aktuell geöffnete BSX.
-
-Die Extension ist QML/JavaScript, läuft nativ in BrickStore ohne extra Compile-Schritt, kein Backend-Dienst, keine Abhängigkeit. Netzwerk-Zugriff auf die Tracker-API per Bearer-Token, alles direkt zwischen BrickStore-Instanz und deinem Tracker.
-
-#### Installation (Schritt für Schritt)
-
-**1) Extension-Datei aus dem Repo holen**
-
-Rechtsklick → "Speichern unter" auf diesen Roh-Datei-Link:
-```
-https://raw.githubusercontent.com/rainman19121979/bl-price-tracker/main/extensions/brickstore/bricklink-price-tracker.bs.qml
-```
-
-**2) Token im Tracker anlegen**
-
-Im Tracker: **Einstellungen → API-Tokens → Neuen Token anlegen** → 32-64-Zeichen-String kopieren. Gib dem Token einen Namen wie "BrickStore" damit du ihn später erkennst.
-
-**3) Datei mit einem Text-Editor öffnen** (Windows: Notepad reicht; macOS: TextEdit; Linux: nano/gedit) und die zwei Zeilen am Anfang anpassen:
-
-```qml
-readonly property string trackerUrl: "http://YOUR_TRACKER_HOST:3000"
-readonly property string trackerToken: "PASTE_YOUR_TOKEN_HERE"
-```
-
-- **`trackerUrl`**: die Adresse unter der du deinen Tracker vom BrickStore-Rechner aus erreichst. Beispiele: `http://100.114.180.28:3000` (Tailscale-IP), `http://192.168.1.42:3000` (LAN-IP), `https://tracker.deine-domain.de` (falls Public-Domain). **Ohne** trailing Slash.
-- **`trackerToken`**: den kopierten Token einsetzen.
-
-Speichern.
-
-**4) Datei in den BrickStore-Extensions-Ordner kopieren**
-
-Der Pfad ist plattformabhängig:
-
-- **Windows:** `C:\Users\<DEIN_USERNAME>\AppData\Roaming\BrickStore\extensions\`
-  - Kürzel im Explorer: `%APPDATA%\BrickStore\extensions\` in die Adresszeile eingeben und Enter drücken
-  - Der `AppData`-Ordner ist standardmäßig versteckt — im Explorer unter Ansicht → "Ausgeblendete Elemente" aktivieren, oder direkt den Pfad in die Adresszeile eingeben
-- **macOS:** `~/Library/Application Support/BrickStore/extensions/`
-  - Im Finder: **Gehe zu → Ordner…** (Cmd+Shift+G), Pfad einfügen
-  - `~/Library` ist standardmäßig versteckt
-- **Linux:** `~/.local/share/BrickStore/extensions/`
-
-Wenn der `extensions`-Ordner nicht existiert, einfach anlegen. Die `.bs.qml`-Datei muss direkt drin liegen (nicht in einem Unterordner).
-
-**5) Extension in BrickStore laden**
-
-BrickStore öffnen → **Extras → Reload user scripts** (kein Neustart nötig). Wenn alles gut lief, siehst du in den Log-Meldungen `[ ok ] bricklink-price-tracker.bs.qml`. Bei einem Fehler bekommst du ein Popup mit der Fehlermeldung — sag mir Bescheid und ich helfe fixen.
-
-#### Verwendung
-
-1. BSX-Datei in BrickStore öffnen (oder den Store-Bestand direkt runterladen: Datei → BrickLink-Store → Aktualisieren)
-2. **Optional:** einzelne Lots markieren (Strg+Klick / Shift+Klick). Wenn nichts markiert ist, verarbeitet die Extension **alle** Lots im Dokument.
-3. **Extras → Preise aus Price Tracker holen…**
-4. Progress-Overlay läuft durch (bei 5000 Lots ca. 30-60 Sekunden, je nach Netzwerk und Tracker-Antwortzeit)
-5. Zusammenfassungs-Dialog am Ende: `Aktualisiert: X Lots — davon Y mit gesperrtem Preis, übersprungen Z ohne Preis`
-6. BSX prüfen (Preis-Spalte hat neue Werte), speichern, zu BL hochladen wie gewohnt
-
-#### Was die Extension pro Lot macht
-
-- **Preis** (`Price`-Spalte): wenn im Tracker `priceLocked=true` (Schloss-Icon in der Watchlist) → schreibt deinen manuellen `myPrice` aus dem Tracker. Sonst → schreibt den `suggestedPrice` aus deiner Preisformel.
-- **Rabatt** (`Sale`-Spalte, 0-99%): schreibt den `saleRate` aus dem Tracker.
-- **Sicherheits-Guard:** Preise = 0 werden **nie** geschrieben (verhindert versehentliche Gratis-Angebote wenn ein Teil keine Marktdaten hat). Solche Lots werden übersprungen und in der Zusammenfassung gezählt.
-- **Angetastet werden nur `Price` und `Sale`** — `Cost`, `Comments`, `Remarks`, `Quantity`, `LotID`, `DateAdded`, alles andere bleibt unverändert.
-- Selection-aware: markierte Lots oder alle im Dokument.
-- Progress-Overlay mit Cancel-Button. Batch-Größe 100 Lots pro API-Call.
-- Fehler pro Lot (Part nicht im Tracker, API-Limit erschöpft) werden übersprungen und in der Zusammenfassung mit Beispielen aufgelistet — die betroffenen Lots bleiben unverändert.
-
-#### Häufige Fragen
-
-- **"Wie oft soll ich das laufen lassen?"** — Vor jedem BL-Upload sinnvoll. Der Tracker aktualisiert Preise im Hintergrund kontinuierlich, deine BSX bekommt aber nur die Werte die zum Zeitpunkt des Extension-Laufs im Tracker stehen.
-- **"Was passiert wenn ein Teil sowohl im Tracker als auch im BrickStore ist, aber die Inventar-ID sich geändert hat (nach Verkauf + Nachschub)?"** — Der Rabatt/Lock-Zustand hängt am Watchlist-Eintrag (per `blInventoryId`). Bei einer neuen ID sind Rabatt/Lock nicht gesetzt, aber der `suggestedPrice` wird trotzdem korrekt berechnet (matched über Part-Nr + Farbe + Zustand). Manuellen Rabatt/Lock musst du im Tracker für den neuen Lot einmal wieder setzen.
-- **"Was wenn der Tracker gerade down ist?"** — Die Extension zeigt einen Netzwerk-Fehler, die BSX bleibt unverändert.
-
-#### API-Budget-Impact
-
-Die Extension nutzt den `POST /api/external/price/batch`-Endpoint gegen den Tracker (Bearer-Auth). Das kostet **KEINE BrickLink-API-Calls** — der Tracker liefert die bereits gecachten Werte aus. Nur wenn ein Teil im Tracker "stale" ist (letzter Crawl älter als deine `freshDays`-Einstellung), triggert er einen frischen BL-Fetch. Bei aktueller Watchlist ist das selten.
+**Volle Dokumentation mit Beispielen:** [API.md](./API.md) — inkl. der BrickStore-Extension die auf diesen Endpoints aufsetzt (Installation und Verwendung sind oben unter *[Preisempfehlungen in deinen Store übertragen — Weg A](#weg-a-empfohlen-brickstore-extension--ein-klick-kein-copy-paste)* beschrieben).
 
 ---
 
