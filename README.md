@@ -414,21 +414,7 @@ docker compose up -d              # Container mit neuem Image starten
 
 **Update-Anzeige in der App:** In der Sidebar unten steht die aktuelle Version. Sobald auf GitHub eine neuere Release veröffentlicht ist, erscheint neben der Versionsnummer ein pulsierender gelber Punkt mit dem Text "Update vX.Y.Z". Klick darauf öffnet ein Popup mit Release-Notes-Link und dem fertigen Update-Befehl zum Kopieren. Der Check läuft admin-seitig alle 6 Stunden gegen die GitHub-API (Redis-cached, kein Traffic-Impact).
 
-### Crawler-Priorisierung: Missstände
-
-Der Crawler arbeitet mit drei Prioritätsebenen:
-
-1. **Höchste Priorität — Watchlist-Änderungen:** Wenn du im BL-Store etwas hinzufügst/entfernst oder eine Menge/Preis-Änderung passiert, wird der Auto-Sync diese Änderungen mit `changedAt` markieren. Der Crawler holt diese Teile bevorzugt.
-
-2. **Mittlere Priorität — Missstände (neu):** Teile deren Daten nicht deinen aktuellen Einstellungen entsprechen — konkret **Country-Mismatch**: die neueste Stock-Snapshot enthält nur `XX` (weltweit) aber du hast einen Verkäuferland-Filter (z.B. DE) gesetzt. Der Crawler holt für diese Teile priorisiert einen neuen Stock-Snapshot mit dem Server-Filter `country_code=DE`.
-
-3. **Baseline — Freshness-Rotation:** die normale Wartungsrotation über deine `freshDays`-Einstellung (Default 90).
-
-**Budget-Aufteilung:** Nach dem Maintenance-Bedarf (Basis-Rotation) und dem geschätzten externen Verbrauch (BrickSync etc.) werden **80% des freien Rests** für Missstand-Priorisierung verwendet. 20% bleiben als Reserve für Spikes (manuelle Refreshs, BrickSync-Bursts).
-
-Im Dashboard siehst du unter **"Brauchen Update"** die Priority-Klassifikation der Teile die noch nachziehen müssen (Neu, Land-Mismatch, Cache veraltet, älter als N Tage — jedes Teil in genau einem Bucket). Unter **"Crawler Status"** siehst du falls Boost aktiv ist eine zweite Zeile `+ X Boost fuer Y Missstaende (~Z Tage bis durch)`.
-
-Migrations werden beim Start automatisch angewendet.
+**Crawler-Priorisierung:** der Crawler arbeitet mit drei Prioritätsebenen — Watchlist-Änderungen (höchste), Missstände (Teile die nicht deinem aktuellen Setting entsprechen, z.B. Country-Mismatch), Baseline-Freshness-Rotation. Budget-Aufteilung: 80% des freien Rests für Missstand-Boost, 20% Reserve für Spikes. Details + Dashboard-Erklärung: [Wiki → Advanced Crawler](https://github.com/rainman19121979/bl-price-tracker/wiki/Advanced-Crawler)
 
 **Lokal bauen statt GHCR-Image nutzen** (nur für Devs / Forks):
 ```bash
@@ -439,62 +425,7 @@ docker compose up -d --build      # überschreibt das GHCR-Image mit lokalem Bui
 
 ## Ohne Docker (Bare Metal)
 
-<details>
-<summary>Für Fortgeschrittene — ausklappen</summary>
-
-Voraussetzungen: Node.js 20+, PostgreSQL 15+, Redis 7+.
-
-```bash
-git clone https://github.com/rainman19121979/bl-price-tracker.git
-cd bl-price-tracker
-npm install
-
-# DB anlegen
-sudo -u postgres createuser -P pricetracker
-sudo -u postgres createdb -O pricetracker pricetracker
-
-# .env: aus .env.example kopieren, DATABASE_URL + REDIS_URL setzen, Secrets generieren
-cp .env.example .env
-# Am Ende der Datei die "Bare-metal only"-Zeilen aktivieren
-
-npx prisma migrate deploy
-npm run build
-
-# Drei Prozesse — je in eigenem Terminal oder als systemd-Services (siehe unten):
-npm start                    # Web (Port 3000)
-npm run crawler              # Crawler
-npm run scheduler            # Scheduler
-```
-
-**systemd-Services (Produktion):**
-
-Beispiel `/etc/systemd/system/pricetracker-web.service`:
-
-```ini
-[Unit]
-Description=BrickLink Price Tracker Web
-After=network.target postgresql.service redis.service
-
-[Service]
-WorkingDirectory=/opt/bl-price-tracker
-ExecStart=/usr/bin/npm start
-Restart=always
-User=pricetracker
-Environment=NODE_ENV=production
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Analog `pricetracker-crawler.service` (`ExecStart=/usr/bin/npm run crawler`) und `pricetracker-scheduler.service` (`ExecStart=/usr/bin/npm run scheduler`).
-
-```bash
-sudo systemctl enable --now pricetracker-{web,crawler,scheduler}
-```
-
-Nach jedem `npm run build` den Web-Service neu starten (`systemctl restart pricetracker-web`), sonst fehlt CSS.
-
-</details>
+Für Fortgeschrittene ohne Docker — Node.js 20+, PostgreSQL 15+, Redis 7+ auf dem Host. Systemd-Services für Web + Crawler + Scheduler. Vollständige Anleitung inkl. systemd-Unit-Files: [Wiki → Bare-Metal-Install](https://github.com/rainman19121979/bl-price-tracker/wiki/Bare-Metal-Install)
 
 ---
 
