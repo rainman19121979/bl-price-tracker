@@ -344,135 +344,28 @@ Falls du die Extension nicht installieren willst oder mal ohne sie arbeiten muss
 
 ## BSX-Order-Import (Verkäufe tracken) — optional
 
-Die `/sales`-Seite (KPI-Karten, 12-Monats-Chart, Top-10) zeigt deine eigenen Verkäufe. Alles andere im Tool funktioniert **unabhängig davon** — wenn du die Sales-Übersicht nicht brauchst, kannst du diesen Abschnitt komplett überspringen.
+Die `/sales`-Seite zeigt deine eigenen Verkäufe (KPI-Karten, 12-Monats-Chart, Top-10). Drei Wege wie die BSX-Order-Dateien reinkommen: **manueller Upload**, **automatischer lokaler Ordner-Scan** oder **SMB/NAS-Freigabe** — je nach Setup.
 
-Drei Wege, wie die Orders reinkommen — je nachdem was zu deinem Setup passt:
-
-### Weg 1: Manueller Upload (einfachster Weg)
-
-Auf `/sales` oben rechts **"BSX-Orders hochladen"** klicken → mehrere `.bsx`-Dateien auf einmal auswählen → fertig. Dedup ist eingebaut: dieselbe Order zweimal hochladen macht nichts kaputt.
-
-Ideal wenn du:
-- BrickSync auf deinem lokalen PC laufen hast und die Server-Anbindung nicht willst
-- BrickSync gar nicht nutzt und BSX-Orders direkt aus BrickStore exportierst
-- Nur ab und zu deinen Umsatz reinschieben willst
-
-### Weg 2: Automatischer Ordner-Scan
-
-Für den vollautomatischen Fall — BrickSync + Server laufen im selben Netz und du willst nix mehr manuell machen:
-
-1. In der UI: Einstellungen → BSX-Import → **"Lokaler Ordner"** → Pfad eintragen (Admin-only)
-2. Der Scheduler scannt alle 30 Minuten und liest neue Dateien
-3. **Nichts wird verändert oder gelöscht** — reiner Lesezugriff
-
-**Netzwerkfreigabe (SMB/NAS) — komplett im Frontend:**
-
-Wenn deine BrickSync-Orders auf einem NAS liegen: **keine Docker-Config, keine Host-Vorbereitung, kein `cifs-utils`**. Die App spricht SMB direkt über eine Node.js-Library.
-
-In der UI (Einstellungen → BSX-Import) auf **"Netzwerkfreigabe (SMB)"** klicken und ausfüllen:
-
-- **Host:** `nas.local` oder `192.168.1.20`
-- **Share:** `lego` (der Freigabename)
-- **Unterordner:** `bricksync/orders` (optional)
-- **Benutzer + Passwort:** SMB-Zugangsdaten
-
-Passwort wird AES-256 verschlüsselt in der Datenbank abgelegt (gleicher Mechanismus wie deine BrickLink-Keys). "Verbindung testen" zeigt sofort ob es klappt.
-
-**Lokaler Ordner (Docker):** Der Container sieht nur was du bind-mountest. Setze in `.env`:
-
-```bash
-BSX_HOST_PATH=/home/holger/bricksync/orders
-```
-
-Nach `docker compose up -d --build` erscheint der Ordner als `/bsx-orders` im Container — genau das trägst du in der UI unter "Lokaler Ordner" ein.
-
-**Bare Metal:** einfach den lokalen Pfad in der UI eintragen. Für Netzwerkfreigaben entweder auf dem Host mounten (`mount -t cifs …`) und Mount-Pfad eintragen, oder direkt SMB in der UI benutzen.
-
-![BSX-Import mit SMB-Formular](docs/05-settings-bsx-smb.png)
+**Vollständige Doku:** [Wiki → BSX-Import](./wiki/BSX-Import.md)
 
 ---
 
 ## Sicher auf einem VPS betreiben
 
-Wenn du die App auf einem VPS (Netcup, Hetzner, Contabo, …) statt daheim betreibst, ist sie ohne extra Härtung öffentlich erreichbar. Diese Checkliste macht das Setup produktionsreif:
+Wenn du die App auf einem VPS (Netcup, Hetzner, Contabo, …) statt daheim betreibst, ist sie ohne extra Härtung öffentlich erreichbar. Die wichtigsten Schritte:
 
-**1. Reverse Proxy mit HTTPS statt Port 3000 direkt.** Caddy ist am einfachsten — hier ein `Caddyfile` (nur diese eine Datei, sonst nix nötig):
+- **Reverse Proxy mit HTTPS** (Caddy o.ä.), Port 3000 nicht direkt exponieren
+- **Firewall** nur 22/80/443 offen (`ufw`)
+- **`NEXTAUTH_URL=https://tracker.deine-domain.de`** in `.env`
+- **Selbst-Registrierung ist per Design geschlossen** nach dem ersten User (siehe [NOTICE.md](./NOTICE.md))
+- **SSH-Härtung** (kein Passwort-Login), **OS-Auto-Updates** (`unattended-upgrades`)
+- **Automatische Backups** via Cronjob mit `pg_dump`
 
-```
-tracker.deine-domain.de {
-    reverse_proxy localhost:3000
-}
-```
+Was die App bereits an Härtung mitbringt: bcrypt für Passwörter, AES-256-GCM für BL-Keys + SMB-Passwörter, HTTPOnly/SameSite-Session-Cookies, Rate-Limits auf Login/Registration/Key-Tests, CSP-Header, Middleware-Auth-Guard.
 
-Caddy holt automatisch ein Let's-Encrypt-Zertifikat, terminiert HTTPS und leitet an die App weiter. Alternative: nginx + certbot (aufwändiger).
+**Vollständige Checkliste + Caddy-Config-Beispiel + Backup-Cronjob:** [Wiki → Deployment + Security](./wiki/Deployment-Security.md)
 
-**2. Firewall — nur 22/80/443 offen.** Auf einem Ubuntu-VPS:
-
-```bash
-ufw default deny incoming
-ufw allow 22/tcp        # SSH
-ufw allow 80/tcp        # HTTP (Caddy für Let's-Encrypt-Redirect)
-ufw allow 443/tcp       # HTTPS
-ufw enable
-```
-
-**Port 3000 NICHT direkt aufmachen** — der ist nur intern für Caddy. Postgres (5432) und Redis (6379) sowieso nicht.
-
-**3. In `.env` die Public-URL setzen:**
-
-```bash
-NEXTAUTH_URL=https://tracker.deine-domain.de
-```
-
-Sonst funktionieren Login-Cookies nicht. Nach Änderung: `docker compose up -d`.
-
-**4. Selbst-Registrierung ist per Design geschlossen.** Nach dem allerersten Aufruf (bei dem du dein Admin-Konto anlegst) wird `/register` dauerhaft 404 — kein Fremder kann sich registrieren, egal ob deine URL im Netz kursiert. Die Instanz ist für **eine** Person / einen BL-Store gedacht (siehe [NOTICE.md](./NOTICE.md)). Willst du zusätzliche User anlegen: aktuell nur direkt in der DB (`psql`) oder per Prisma-Studio, ein Admin-UI dafür ist bewusst nicht dabei.
-
-**5. SSH-Härtung.** Passwort-Login raus, nur Key-basiert:
-
-```bash
-# In /etc/ssh/sshd_config:
-PasswordAuthentication no
-PermitRootLogin prohibit-password
-# dann: systemctl restart ssh
-```
-
-**6. Auto-Updates.** Unattended-Upgrades für's OS:
-
-```bash
-apt install unattended-upgrades
-dpkg-reconfigure -plow unattended-upgrades
-```
-
-Für die App selbst: `git pull && docker compose up -d --build` — kein Auto-Update, du entscheidest wann.
-
-**Was die App selbst schon macht (musst du nicht extra tun):**
-- Passwörter mit bcrypt (cost 12) gehasht
-- BrickLink-API-Keys AES-256-GCM verschlüsselt
-- SMB-Passwörter (falls konfiguriert) AES-256-GCM verschlüsselt
-- Session-Cookies HTTPOnly + SameSite
-- Rate-Limits auf Login + Registrierung + Key-Tests (Redis-backed)
-- Content-Security-Policy Header
-- Middleware blockt alle nicht-öffentlichen Routen ohne Session
-
-**Was ich NICHT empfehle:**
-- Ohne HTTPS betreiben (Passwörter im Klartext übers Netz)
-- Port 3000 direkt exponieren
-- Ohne Backups laufen lassen (`docker exec pricetracker-db-1 pg_dump ...` in Cronjob)
-
-Wenn du das umsetzt, ist der VPS-Betrieb genauso sicher wie andere selbstgehostete Web-Anwendungen — nicht bank-grade, aber solide für ein Ein-Personen-Tool.
-
-### Wenn du die Instanz doch für andere zugänglich machen willst
-
-Diese App ist **für den persönlichen Selbst-Host konzipiert** — eine Person / ein BrickLink-Store pro Instanz. Wenn du sie trotzdem für andere Nutzer öffnest (Community-Instanz, Familie mit mehreren BL-Stores, kleine Nutzergruppe), musst du selbst dafür sorgen dass die **BrickLink API Terms of Use** für Publikums-Anwendungen erfüllt sind:
-
-- **Attribution-Notice sichtbar in der UI** — der exakte Wortlaut steht in [NOTICE.md](./NOTICE.md): *"The term 'BrickLink' is a trademark of the LEGO Group BrickLink. This application uses the BrickLink API but is not endorsed or certified by LEGO BrickLink, Inc."*
-- **Kontakt-Email prominent anzeigen** für Third-Party-Anfragen
-- **Terms of Service + Privacy Policy** in visible location verlinken
-- Jeder Nutzer muss **eigener aktiver BrickLink-Seller** sein mit eigenen API-Zugangsdaten — Preisdaten dürfen nicht zwischen fremden BL-Accounts geteilt werden
-- Das Preisdaten-Export/Import-Feature ist ausschließlich für den eigenen Instanz-Umzug gedacht, nicht zum Teilen mit Dritten
-
-Bei einer echten Multi-User-Öffnung übernimmst **du** als Betreiber die Verantwortung diese Klauseln in der UI umzusetzen — das Tool selbst wird bewusst nur mit dem für den Solo-Betrieb nötigen Minimum ausgeliefert.
+Wenn du die Instanz doch für andere zugänglich machen willst (Community-Instanz, mehrere BL-Stores, Familie): du musst dann selbst dafür sorgen dass die BrickLink API TOS für Publikums-Anwendungen erfüllt sind (Attribution-Notice, Kontakt-Email, ToS/Privacy). Details im Wiki-Deployment-Kapitel.
 
 ---
 
