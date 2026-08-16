@@ -20,8 +20,8 @@
 //        lot.sale = saleRate  (0-99%)
 //   4) Zusammenfassung: "X von Y Preisen aktualisiert, Z uebersprungen"
 
-import BrickStore as BS
-import BrickLink as BL
+import BrickStore 1.1
+import BrickLink 1.1
 import QtQuick
 
 Script {
@@ -48,7 +48,7 @@ Script {
     }
 
     function conditionCode(lot) {
-        return lot.condition === BL.Condition.New ? "N" : "U"
+        return lot.condition === BrickLink.Condition.New ? "N" : "U"
     }
 
     function itemTypeCode(lot) {
@@ -85,7 +85,7 @@ Script {
             ))
         }
 
-        var doc = BS.BrickStore.activeDocument
+        var doc = BrickStore.activeDocument
         if (!doc) {
             throw new Error(qsTr("Kein Dokument geoeffnet."))
         }
