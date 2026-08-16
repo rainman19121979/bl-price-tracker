@@ -227,7 +227,7 @@ Bis zu **100 Teile pro Request**. Verarbeitung sequentiell (respektiert BL API-B
 
 **Pflichtfelder pro Lot:** `blInventoryId`, `partNo`, `colorId`, `itemType`, `condition`
 
-**Optionale Felder:** `completeness` (`C`/`I`/`S`, nur bei SET), `myPrice`, `myQuantity`, `myCost` (Lot-Gesamtkosten, NICHT per Stück!), `description`, `remarks`, `saleRate`, `priceLocked`
+**Optionale Felder:** `completeness` (`C`/`I`/`S`, nur bei SET), `myPrice`, `myQuantity`, `myCost` (Einkaufspreis **pro Stück**, so wie BL es liefert), `description`, `remarks`, `saleRate`, `priceLocked`
 
 **Query-Parameter (optional):**
 

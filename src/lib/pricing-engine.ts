@@ -371,7 +371,7 @@ export const PRICING_VAR_DOCS: Record<string, string> = {
   stockQty: 'Gesamte am Markt angebotene Stückzahl',
   myPrice: 'Dein aktueller Verkaufspreis (aus BL/BSX)',
   myQty: 'Deine Bestandsmenge',
-  myCost: 'Dein Einkaufspreis pro Stück (myCost/myQty aus BL)',
+  myCost: 'Dein Einkaufspreis pro Stück (BL liefert bereits per-Stück)',
 }
 
 export const PRICING_FUNC_DOCS: Record<string, string> = {

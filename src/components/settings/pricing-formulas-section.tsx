@@ -240,7 +240,7 @@ export function PricingFormulasSection({ initialFormulas, onError, onSuccess }: 
               <div><code className="rounded bg-white px-1 py-0.5 font-mono">stockMedian * 0.95</code> — 5% unter aktuellem Markt-Median unterbieten</div>
               <div><code className="rounded bg-white px-1 py-0.5 font-mono">max(sold90dMedian, stockMedian) * 1.1</code> — 10% über dem höheren von 90-Tage-Verkauf oder Markt (aggressive Marge)</div>
               <div><code className="rounded bg-white px-1 py-0.5 font-mono">stockCount &gt; 3 ? stockMedian * 0.98 : sold90dMedian</code> — wenn genug Konkurrenz, leicht unterbieten, sonst Verkaufsmedian als Anker</div>
-              <div><code className="rounded bg-white px-1 py-0.5 font-mono">max(myCost / myQty * 1.5, stockMin)</code> — mindestens 50% Marge auf Einkauf, aber nie unter dem günstigsten Angebot</div>
+              <div><code className="rounded bg-white px-1 py-0.5 font-mono">max(myCost * 1.5, stockMin)</code> — mindestens 50% Marge auf Einkauf, aber nie unter dem günstigsten Angebot</div>
             </div>
           </div>
         </div>

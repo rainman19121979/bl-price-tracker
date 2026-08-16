@@ -92,16 +92,16 @@ gestern).
 
 | Variable | Bedeutung |
 |---|---|
-| `myPrice` | Dein aktueller Verkaufspreis für dieses Lot |
+| `myPrice` | Dein aktueller Verkaufspreis für dieses Lot (per-Stück) |
 | `myQty` | Deine aktuelle Menge (Stück) |
-| `myCost` | **Deine Einkaufskosten für den GANZEN Lot** (nicht per Stück!) |
+| `myCost` | Dein Einkaufspreis **pro Stück** (nicht Lot-Total!) |
 
-> **Achtung `myCost`:** BL speichert Cost als Lot-Gesamtsumme, nicht als
-> Stückpreis. Wenn du 100 Stück für 5.00 € eingekauft hast, ist
-> `myCost = 5.00`, nicht `0.05`. Deine Formel muss `myCost / myQty` rechnen
-> um auf den Stück-Einkaufspreis zu kommen. Beispiel:
-> `max(sold90dMedian, myCost / myQty * 1.30)` — mindestens 30 % Marge auf
-> deinen Stück-Einkaufspreis.
+> **`myCost` ist per-Stück** — 1:1 wie BL es liefert. Wenn du 100 Stück für
+> 0.05 € pro Stück gekauft hast, ist `myCost = 0.05`. Deine Formel nutzt
+> `myCost` direkt (keine Division durch `myQty` nötig oder gewünscht).
+> Beispiel Cost-Untergrenze mit 30 % Marge: `max(sold90dMedian, myCost * 1.30)`.
+> (Verifiziert am 2026-08-16 gegen BL Live-API — frühere Doku-Version behauptete
+> fälschlich "Lot-Total", das war falsch.)
 
 ---
 
@@ -178,7 +178,7 @@ den Markt drückt.
 ### 3. "Mindestens 30 % Marge auf den Einkauf, sonst Marktpreis"
 
 ```
-max(sold90dMedian * 0.95, myCost / myQty * 1.30)
+max(sold90dMedian * 0.95, myCost * 1.30)
 ```
 
 Guardrail gegen Verlust-Verkäufe.
@@ -186,7 +186,7 @@ Guardrail gegen Verlust-Verkäufe.
 ### 4. "Marktpreis, aber nicht mehr als 10 % über dem Marktmedian"
 
 ```
-min(max(myCost / myQty * 1.30, sold90dMedian * 0.95),
+min(max(myCost * 1.30, sold90dMedian * 0.95),
     stockMedian * 1.10)
 ```
 
@@ -226,7 +226,7 @@ Niedrige Nachfrage → 5 % unter Median.
 ### 8. "Fallback für Teile ohne Marktdaten"
 
 ```
-max(sold90dMedian * 0.95, myPrice, myCost / myQty * 1.30)
+max(sold90dMedian * 0.95, myPrice, myCost * 1.30)
 ```
 
 Wenn `sold90dMedian` und `stockMedian` beide 0 sind (kein Markt-Signal),
@@ -236,7 +236,7 @@ was höher ist.
 ### 9. Deine aktuelle Formel (aus dem Repo als Beispiel)
 
 ```
-min(max(min(myCost / myQty * 1.30, stockMedian * 1.05),
+min(max(min(myCost * 1.30, stockMedian * 1.05),
         sold6mMedian * 0.95,
         stockMedian * 1.00),
     stockMedian * 1.10)
@@ -250,7 +250,7 @@ gedeckelt bei 10 % über dem Marktmedian.
 
 ## Design-Prinzipien für gute Formeln
 
-1. **Immer eine Untergrenze setzen** (`max(..., myCost / myQty * X.XX)`)
+1. **Immer eine Untergrenze setzen** (`max(..., myCost * X.XX)`)
    — verhindert Verlust-Verkäufe wenn der Markt zusammenbricht.
 2. **Immer eine Obergrenze setzen** (`min(..., stockMedian * X.XX)`) —
    verhindert dass du wegen fehlender Sales unrealistisch teuer bist und
@@ -315,11 +315,10 @@ gut geeignet:
 > Ich habe einen BrickLink-Preis-Tracker mit einem Preisformel-Feature.
 > Bitte bau mir eine Preisformel die [Anforderung]. Die verfügbaren
 > Variablen und Operatoren stehen im angehängten Dokument. Nutze möglichst
-> `min()` und `max()` als Sicherheits-Klammern, bevorzuge Median statt
-> Durchschnitt, und arbeite immer mit `myCost / myQty` (nicht nur `myCost`)
-> weil BL Cost als Lot-Gesamtsumme speichert. Gib mir die Formel als
-> einzige Zeile ohne Kommentar, und erkläre in 2-3 Sätzen darunter was sie
-> tut.
+> `min()` und `max()` als Sicherheits-Klammern und bevorzuge Median statt
+> Durchschnitt. `myCost` ist bereits der Stück-Einkaufspreis (nicht durch
+> `myQty` teilen). Gib mir die Formel als einzige Zeile ohne Kommentar, und
+> erkläre in 2-3 Sätzen darunter was sie tut.
 
 Kopiere danach den ganzen Inhalt dieser Datei als Anhang / zweite Nachricht
 mit. Die KI hat dann alles was sie braucht.

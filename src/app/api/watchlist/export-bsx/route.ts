@@ -167,10 +167,10 @@ export async function GET() {
     if (item.item_type === "SET" && item.completeness) {
       xml += `   <Completeness>${item.completeness}</Completeness>\n`;
     }
-    // Cost is per-unit; DB stores lot total → divide by qty
-    if (item.my_cost != null && item.my_cost > 0 && item.my_quantity > 0) {
-      const costPerUnit = item.my_cost / item.my_quantity;
-      xml += `   <Cost>${costPerUnit.toFixed(3)}</Cost>\n`;
+    // Cost: BL liefert my_cost bereits per-Stueck (verifiziert via getInventory
+    // Live-Test 2026-08-16). Wir speichern das 1:1, also einfach ausgeben.
+    if (item.my_cost != null && item.my_cost > 0) {
+      xml += `   <Cost>${item.my_cost.toFixed(4)}</Cost>\n`;
     }
     // Remarks = private BL "Remarks" field (Lagerplatz, z.B. TA039) — NEVER the public description!
     if (item.remarks) xml += `   <Remarks>${esc(item.remarks)}</Remarks>\n`;
