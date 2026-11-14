@@ -30,6 +30,14 @@ model User {
   bsxSmbDomain      String?         @map("bsx_smb_domain")
   bsxSmbUser        String?         @map("bsx_smb_user")
   bsxSmbPasswordEnc Bytes?          @map("bsx_smb_password_enc")
+  // hb-tool als Quelle fuer Inventar + Bestellungen (ersetzt BL-Auto-Sync + BSX-Import)
+  hbtoolUrl             String?   @map("hbtool_url") @db.VarChar(255)
+  hbtoolTokenEnc        Bytes?    @map("hbtool_token_enc")
+  hbtoolOrdersCursor    String?   @map("hbtool_orders_cursor") @db.VarChar(30)
+  hbtoolInventoryEtag   String?   @map("hbtool_inventory_etag") @db.VarChar(100)
+  hbtoolLastInventoryAt DateTime? @map("hbtool_last_inventory_at")
+  hbtoolLastOrdersAt    DateTime? @map("hbtool_last_orders_at")
+  hbtoolLastError       String?   @map("hbtool_last_error")
   crawlQueue        CrawlQueue[]
   apiKeys           UserApiKey[]
   watchlists        UserWatchlist[]

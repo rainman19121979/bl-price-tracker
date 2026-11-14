@@ -3,13 +3,14 @@
 import { RefreshCw } from "lucide-react";
 
 interface AutoSyncSectionProps {
+  replacedByHbtool?: boolean;
   autoSync: boolean;
   loading: boolean;
   saving: boolean;
   onToggle: () => void;
 }
 
-export function AutoSyncSection({ autoSync, loading, saving, onToggle }: AutoSyncSectionProps) {
+export function AutoSyncSection({ replacedByHbtool, autoSync, loading, saving, onToggle }: AutoSyncSectionProps) {
   return (
     <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
       <div className="flex items-center justify-between">
@@ -41,6 +42,11 @@ export function AutoSyncSection({ autoSync, loading, saving, onToggle }: AutoSyn
           />
         </button>
       </div>
+      {replacedByHbtool && (
+        <div className="mt-4 rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-900">
+          Pausiert: Das Inventar kommt aus hb-tool. BrickLink wird dafür nicht abgefragt, egal wie der Schalter steht.
+        </div>
+      )}
       <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
         <p className="font-semibold">Read-only für BrickLink &amp; BrickOwl</p>
         <p className="mt-1 text-amber-800">

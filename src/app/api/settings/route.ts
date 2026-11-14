@@ -5,6 +5,20 @@ import { validateFormula, type PricingRule } from "@/lib/pricing-engine";
 
 export const dynamic = "force-dynamic";
 
+function hbtoolState(u: {
+  hbtoolUrl: string | null; hbtoolTokenEnc: Uint8Array | null; hbtoolLastInventoryAt: Date | null;
+  hbtoolLastOrdersAt: Date | null; hbtoolLastError: string | null; hbtoolOrdersCursor: string | null;
+}) {
+  return {
+    url: u.hbtoolUrl,
+    tokenSet: !!u.hbtoolTokenEnc,
+    lastInventoryAt: u.hbtoolLastInventoryAt,
+    lastOrdersAt: u.hbtoolLastOrdersAt,
+    lastError: u.hbtoolLastError,
+    ordersCursor: u.hbtoolOrdersCursor,
+  };
+}
+
 export async function GET() {
   const session = await auth();
   if (!session?.user?.id) {
@@ -21,6 +35,8 @@ export async function GET() {
       bsxOrdersDir: true, bsxSourceType: true,
       bsxSmbHost: true, bsxSmbShare: true, bsxSmbSubpath: true,
       bsxSmbDomain: true, bsxSmbUser: true, bsxSmbPasswordEnc: true,
+      hbtoolUrl: true, hbtoolTokenEnc: true, hbtoolLastInventoryAt: true,
+      hbtoolLastOrdersAt: true, hbtoolLastError: true, hbtoolOrdersCursor: true,
     },
   });
 
@@ -95,6 +111,7 @@ export async function GET() {
       smbUser: user.bsxSmbUser,
       smbPasswordSet: !!user.bsxSmbPasswordEnc,
     },
+    hbtool: hbtoolState(user),
   });
 }
 
@@ -123,6 +140,10 @@ export async function POST(request: Request) {
       smbUser?: string | null;
       smbPassword?: string | null;  // null = keep existing, "" = clear, string = new
     } | null;
+    hbtool?: {
+      url?: string | null;          // null/"" = hb-tool-Quelle abschalten
+      token?: string | null;        // null = keep existing, "" = clear, string = new
+    };
   };
   try {
     body = await request.json();
@@ -145,6 +166,10 @@ export async function POST(request: Request) {
     bsxSmbDomain?: string | null;
     bsxSmbUser?: string | null;
     bsxSmbPasswordEnc?: Buffer | null;
+    hbtoolUrl?: string | null;
+    hbtoolTokenEnc?: Buffer | null;
+    hbtoolInventoryEtag?: string | null;
+    hbtoolLastError?: string | null;
   } = {};
 
   if (typeof body.autoSyncInventory === "boolean") {
@@ -279,6 +304,33 @@ export async function POST(request: Request) {
     // which fields the loader reads.
   }
 
+  if (body.hbtool !== undefined) {
+    // Server ruft die URL aktiv ab -> nur Admin (wie BSX-Quelle)
+    const me = await prisma.user.findUnique({ where: { id: userId }, select: { isAdmin: true } });
+    if (!me?.isAdmin) {
+      return NextResponse.json({ error: "Nur Admin darf hb-tool einrichten" }, { status: 403 });
+    }
+    const rawUrl = typeof body.hbtool.url === "string" ? body.hbtool.url.trim() : "";
+    if (rawUrl) {
+      const { normalizeHbtoolUrl } = await import("@/lib/hbtool-source");
+      const url = normalizeHbtoolUrl(rawUrl);
+      if (!url) return NextResponse.json({ error: "Ungültige hb-tool-URL (http:// oder https://)" }, { status: 400 });
+      data.hbtoolUrl = url;
+    } else {
+      data.hbtoolUrl = null;
+    }
+    const t = body.hbtool.token;
+    if (t === "") {
+      data.hbtoolTokenEnc = null;
+    } else if (typeof t === "string") {
+      const { encrypt } = await import("@/lib/encryption");
+      data.hbtoolTokenEnc = encrypt(t.trim());
+    }
+    // Neue Verbindung -> ETag + Fehler zuruecksetzen (Cursor bleibt, Bestellungen sind idempotent)
+    data.hbtoolInventoryEtag = null;
+    data.hbtoolLastError = null;
+  }
+
   const updated = await prisma.user.update({
     where: { id: userId },
     data,
@@ -288,6 +340,8 @@ export async function POST(request: Request) {
       bsxOrdersDir: true, bsxSourceType: true,
       bsxSmbHost: true, bsxSmbShare: true, bsxSmbSubpath: true,
       bsxSmbDomain: true, bsxSmbUser: true, bsxSmbPasswordEnc: true,
+      hbtoolUrl: true, hbtoolTokenEnc: true, hbtoolLastInventoryAt: true,
+      hbtoolLastOrdersAt: true, hbtoolLastError: true, hbtoolOrdersCursor: true,
     },
   });
 
@@ -326,5 +380,6 @@ export async function POST(request: Request) {
       smbUser: updated.bsxSmbUser,
       smbPasswordSet: !!updated.bsxSmbPasswordEnc,
     },
+    hbtool: hbtoolState(updated),
   });
 }

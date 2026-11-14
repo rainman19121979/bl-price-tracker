@@ -14,6 +14,7 @@ export interface BsxSourceState {
 }
 
 interface Props {
+  replacedByHbtool?: boolean;
   initialDir: string | null;
   initialSource: BsxSourceState;
   onError: (msg: string) => void;
@@ -35,7 +36,7 @@ interface ImportResult {
   durationMs: number;
 }
 
-export function BsxImportSection({ initialDir, initialSource, onError, onSuccess }: Props) {
+export function BsxImportSection({ replacedByHbtool, initialDir, initialSource, onError, onSuccess }: Props) {
   const [type, setType] = useState<"local" | "smb">(initialSource.type);
   const [dir, setDir] = useState(initialDir ?? "");
   const [smbHost, setSmbHost] = useState(initialSource.smbHost ?? "");
@@ -160,6 +161,12 @@ export function BsxImportSection({ initialDir, initialSource, onError, onSuccess
           </p>
         </div>
       </div>
+
+      {replacedByHbtool && (
+        <div className="mt-3 rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-900">
+          Pausiert: Bestellungen kommen aus hb-tool. Der Scheduler liest diesen Ordner nicht mehr.
+        </div>
+      )}
 
       {/* Source-Type Selector */}
       <div className="mt-4 inline-flex rounded-lg border border-gray-200 bg-gray-50 p-1">

@@ -73,6 +73,7 @@ BrickLink API (OAuth 1.0, worldwide -- no `country_code`) -> Crawler loop (dynam
 - **External API bevorzugt Cache bei blInventoryId-Match:** `computeExternalPrice` in `external-price.ts` liefert bei mitgeschicktem `blInventoryId` den gecachten `user_watchlists.suggestedPrice` statt LIVE zu berechnen. Grund: die LIVE-Berechnung setzt sold7d/30d/60d/90dMedian hardcoded auf 0 (nur 6M + Stock werden aggregiert) — Formeln die Zeit-Buckets nutzen bekommen sonst falsche Werte. Der Cache ist von `recomputeLotPricing` mit allen Buckets korrekt gefüllt.
 - **Crawler-Priorisierung (`workers/crawler.ts`):** drei Prioritätsebenen: (1) `changedAt` (Inventar-Änderung), (2) Missstände (Country-Mismatch: neueste Stock-Snapshot enthält nur `'XX'` obwohl User `sellerCountries` gesetzt hat -> forced Stock-Job mit `country_code=X`), (3) Rotation nach `freshDays`. Budget: `0.80 * (dailyLimit - externalCalls - maintenanceCallsPerDay)` als Boost für Missstände, 20% Reserve für Spikes. `calculateDelay` und `findNextJob` implementieren das gemeinsam. Boost + Missstand-Zaehler werden im Dashboard-Stats-Endpoint gespiegelt.
 - **API key encryption:** AES-256-GCM for stored BrickLink OAuth secrets.
+- **hb-tool als Quelle (Inventar + Bestellungen, seit 2026-11-14):** BrickSync ist abgeschaltet, hb-tool (`/root/hb-tool`, Port 8100) ist Master fuer Bestand und Bestellungen. Ist `users.hbtool_url` + `hbtool_token_enc` gesetzt, holt der Scheduler alle 5 Min `GET /api/tracker/inventory` (kompletter Bestand, ETag/304) und `GET /api/tracker/orders?changedSince=` (Cursor `hbtool_orders_cursor`, inklusive Ueberschneidung) und **ueberspringt BL-Auto-Sync und BSX-Import** fuer diesen User. Inventar: Abgleich per `blLotId`, nur geaenderte Lots werden geschrieben + neu bepreist, fehlende geloescht -- Bremse: schrumpft der Bestand um >20 % (ab 50 Lots), wird nichts geaendert (`force` per UI-Button "Trotzdem uebernehmen"). `saleRate` nur uebernehmen wenn hb-tool ihn liefert (fuehrt aktuell keinen Rabatt). Completeness `B` (hb-tool/BL-Inventar) -> `I`. Bestellungen: pro `(platform, orderId)` werden alle `my_sales`-Zeilen ersetzt (nur wenn sich etwas aendert) -> Stornos (`cancelled`), Testkaeufe (`test`) und Nicht-EUR loeschen die Zeilen, Erstattungen (`refundedQuantity`) werden abgezogen. `unitPrice` ist der bezahlte Preis nach Rabatt (BSX hatte den Listenpreis). Alte BSX-Bestellungen vor hb-tools Start (28.06.2026) bleiben unberuehrt. Code: `src/lib/hbtool-source.ts`, `src/lib/hbtool-sync.ts`, UI `HbtoolSection` (Settings, admin-only), Routen `/api/settings/hbtool-{test,sync}`. Spezifikation: Vault "BL Price Tracker / Schnittstelle hb-tool".
 - **Bootstrap-only registration:** `/register` (Page + API) sind nur erreichbar solange `userCount === 0`. Der erste Aufruf legt den Admin-Account an, danach 404 -- Selbst-Registrierung ist per Design dauerhaft dicht (BL API TOS-Risiko: geteilte Preis-DB mit fremden BL-Accounts). Zusätzliche User anlegen: aktuell nur per DB (`psql`/Prisma-Studio). Der frühere Redis-Toggle `app:registration_open` und `src/lib/app-settings.ts` sind entfernt.
 - **Preisdaten Export/Import (`/api/admin/prices/{export,import}`):** Admin-only NDJSON-Endpoint für Instanz-Umzug oder Merge zwischen eigenen Instanzen. Export enthält nur Parts + Sales + Stock + Daily -- keine User/Watchlist/Keys/my_sales. Import ist additiv (`ON CONFLICT DO NOTHING`), partId wird über `(partNo, colorId, itemType)` remapped, betroffene daily-Rollups werden nach dem Sales-Merge via `recomputePriceDaily()` neu berechnet. UI in `PricesExportImportSection`, unter Settings → Backup & Restore.
 - **Pricing formulas:** Per-user configurable pricing rules with filters (item type, condition, color, category). Safe expression parser with 26+ variables (incl. `myCost`). See `src/lib/pricing-engine.ts`. Formulas round output to 3 decimals (BrickStore/BrickLink standard). **`myCost` from BL is per-unit** (Stück-Einkaufspreis) — nicht durch `myQty` teilen! (Live-verifiziert 2026-08-16 via `getInventory`.)
@@ -100,12 +101,13 @@ BrickLink API (OAuth 1.0, worldwide -- no `country_code`) -> Crawler loop (dynam
 - **`src/lib/pricing-engine.ts`** -- Safe expression parser for pricing formulas: evaluateFormula, findMatchingRule, validateFormula.
 - **`src/lib/lot-pricing.ts`** -- Pricing-cache compute: `recomputeLotPricing(watchlistId)`, `recomputeAllLotsForPart(partId, condition)`, `recomputeAllLotsForUser(userId)`. Last variant uses UNNEST batch-update for ~9k lots in ~12s.
 - **`src/lib/fetch-prices.ts`** -- `fetchPriceData(part, condition, apiKeyId)`: BL sold + stock fetch + DB save + per-condition timestamp update. Reused by `/api/external/price`, `/api/inventory/sync-and-fetch`, `/api/external/watchlist/lots`.
-- **`src/lib/inventory-sync.ts`** -- `syncBricklinkInventory(userId)`: shared inventory sync logic. Calls `recomputeAllLotsForUser` at the end.
+- **`src/lib/inventory-sync.ts`** -- `syncBricklinkInventory(userId)`: shared inventory sync logic. Calls `recomputeAllLotsForUser` at the end. Nur noch fuer User ohne hb-tool-Quelle.
+- **`src/lib/hbtool-sync.ts`** -- `runHbtoolSync(userId, {force?, ordersFromStart?})`: Inventar + Bestellungen aus hb-tool, schreibt `hbtool_last_error`.
 - **`src/lib/html-entities.ts`** -- `decodeHtmlEntities(str)`: decodes `&#nnn;`, `&amp;`, `&lt;`, etc. from BL responses.
 
 ### Database
 
-- `users` -- accounts with `crawlerEnabled`, `autoSyncInventory`, `freshDays`, `pricingFormulas`, `shippingCountries` (buyer filter), `sellerCountries` (seller filter, default `DE`), `isAdmin`
+- `users` -- accounts with `crawlerEnabled`, `autoSyncInventory`, `freshDays`, `pricingFormulas`, `shippingCountries` (buyer filter), `sellerCountries` (seller filter, default `DE`), `isAdmin`, hb-tool-Quelle (`hbtool_url`, `hbtool_token_enc` AES, `hbtool_orders_cursor`, `hbtool_inventory_etag`, `hbtool_last_{inventory,orders}_at`, `hbtool_last_error`)
 - `user_api_keys` -- encrypted BrickLink OAuth credentials per user, daily limit, `externalCalls` (JSON)
 - `api_call_log` -- rolling 24h API call tracking per key (id, apiKeyId, createdAt)
 - `parts` -- master data with per-condition crawl timestamps (`lastSoldCrawlN/U`, `lastStockCrawlN/U`)
@@ -125,8 +127,9 @@ Simple `while(true)` loop in `src/workers/crawler.ts`. No BullMQ, no queue table
 
 Simple `while(true)` loop in `src/workers/scheduler.ts`, runs every 5 minutes:
 - Cleanup of old `api_call_log` entries (>48h)
-- Auto-sync BrickLink inventory for users with `autoSyncInventory=true` (detects sales via quantity changes → `my_sales`)
-- Import new BSX order files from each user's configured `bsxOrdersDir` (read-only, 30-min interval)
+- hb-tool-Abruf (Inventar + Bestellungen) fuer User mit hb-tool-Quelle, jeden Lauf (5 Min)
+- Auto-sync BrickLink inventory for users with `autoSyncInventory=true` (max. 1x/24h) -- nicht fuer hb-tool-User
+- Import new BSX order files from each user's configured `bsxOrdersDir` (read-only, 30-min interval) -- nicht fuer hb-tool-User (BrickSync ist abgeschaltet)
 - Market report check (hourly): weekly Sunday 06:00 or threshold-based trigger (`detectSignificantChange`)
 
 ### Admin Features

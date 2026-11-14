@@ -8,6 +8,7 @@ import { SellerCountriesSection } from "@/components/settings/seller-countries-s
 import { PricingFormulasSection } from "@/components/settings/pricing-formulas-section";
 import { ApiTokensSection } from "@/components/settings/api-tokens-section";
 import { BsxImportSection, type BsxSourceState } from "@/components/settings/bsx-import-section";
+import { HbtoolSection, type HbtoolState } from "@/components/settings/hbtool-section";
 import { AdminSection } from "@/components/settings/admin-section";
 import { BackupSection } from "@/components/settings/backup-section";
 import { PricesExportImportSection } from "@/components/settings/prices-export-import-section";
@@ -51,6 +52,12 @@ export default function SettingsPage() {
     smbDomain: null, smbUser: null, smbPasswordSet: false,
   });
 
+  // hb-tool als Quelle fuer Inventar + Bestellungen
+  const [hbtool, setHbtool] = useState<HbtoolState>({
+    url: null, tokenSet: false, lastInventoryAt: null, lastOrdersAt: null, lastError: null, ordersCursor: null,
+  });
+  const [hbtoolActive, setHbtoolActive] = useState(false);
+
   // Shared messages
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -84,6 +91,10 @@ export default function SettingsPage() {
         setAvailableSellerCountries(data.availableSellerCountries || []);
         setBsxOrdersDir(data.bsxOrdersDir ?? null);
         if (data.bsxSource) setBsxSource(data.bsxSource);
+        if (data.hbtool) {
+          setHbtool(data.hbtool);
+          setHbtoolActive(!!data.hbtool.url && data.hbtool.tokenSet);
+        }
         setSettingsLoaded(true);
       }
     } catch {
@@ -327,6 +338,7 @@ export default function SettingsPage() {
       )}
 
       <AutoSyncSection
+        replacedByHbtool={hbtoolActive}
         autoSync={autoSync}
         loading={autoSyncLoading}
         saving={autoSyncSaving}
@@ -353,8 +365,18 @@ export default function SettingsPage() {
 
       <ApiTokensSection onError={setError} onSuccess={setSuccess} />
 
+      {settingsLoaded && isAdmin && (
+        <HbtoolSection
+          initial={hbtool}
+          onError={setError}
+          onSuccess={setSuccess}
+          onActiveChange={setHbtoolActive}
+        />
+      )}
+
       {settingsLoaded && (
         <BsxImportSection
+          replacedByHbtool={hbtoolActive}
           initialDir={bsxOrdersDir}
           initialSource={bsxSource}
           onError={setError}

@@ -4,6 +4,32 @@ import { cleanupOldLogs } from '@/lib/api-usage'
 import { importBsxSource } from '@/lib/bsx-orders'
 import { loadUserBsxSource } from '@/lib/bsx-source'
 import { syncBricklinkInventory } from '@/lib/inventory-sync'
+import { runHbtoolSync } from '@/lib/hbtool-sync'
+
+// User mit hb-tool-Quelle (URL + Token): Inventar + Bestellungen kommen von
+// hb-tool, BL-Auto-Sync und BSX-Import werden fuer sie uebersprungen.
+async function hbtoolUserIds(): Promise<Set<number>> {
+  const users = await prisma.user.findMany({
+    where: { isActive: true, hbtoolUrl: { not: null }, hbtoolTokenEnc: { not: null } },
+    select: { id: true },
+  })
+  return new Set(users.map(u => u.id))
+}
+
+async function syncFromHbtool(userIds: Set<number>): Promise<void> {
+  for (const userId of Array.from(userIds)) {
+    const r = await runHbtoolSync(userId)
+    const inv = r.inventory
+    const ord = r.orders
+    if (inv && !inv.notModified && (inv.added || inv.updated || inv.removed)) {
+      console.log(`[hb-tool] User ${userId} Inventar: ${inv.totalLots} Lots, +${inv.added}, ~${inv.updated}, -${inv.removed}, ${inv.skipped} übersprungen`)
+    }
+    if (ord && (ord.ordersWritten || ord.ordersRemoved)) {
+      console.log(`[hb-tool] User ${userId} Bestellungen: ${ord.ordersSeen} gesehen, ${ord.ordersWritten} geschrieben, ${ord.ordersRemoved} entfernt, ${ord.itemsSkipped} Positionen übersprungen`)
+    }
+    if (r.error) console.error(`[hb-tool] User ${userId}: ${r.error}`)
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Auto-Sync: Sync BrickLink inventory for users with autoSyncInventory=true.
@@ -11,11 +37,11 @@ import { syncBricklinkInventory } from '@/lib/inventory-sync'
 // NOT from quantity-diffs (that path produced duplicates).
 // ---------------------------------------------------------------------------
 
-async function autoSyncInventories(): Promise<void> {
-  const users = await prisma.user.findMany({
+async function autoSyncInventories(skip: Set<number>): Promise<void> {
+  const users = (await prisma.user.findMany({
     where: { autoSyncInventory: true, isActive: true },
     select: { id: true },
-  })
+  })).filter(u => !skip.has(u.id))
 
   if (users.length === 0) return
 
@@ -43,7 +69,7 @@ let lastBsxCheck = 0
 
 // BSX orders are imported per-user from the directory each user configured in Settings
 // (read-only — files are NEVER modified or deleted)
-async function checkBsxOrders(): Promise<void> {
+async function checkBsxOrders(skip: Set<number>): Promise<void> {
   // Only check once per 30 minutes
   if (Date.now() - lastBsxCheck < 30 * 60 * 1000) return
   lastBsxCheck = Date.now()
@@ -56,6 +82,7 @@ async function checkBsxOrders(): Promise<void> {
   })
 
   for (const user of users) {
+    if (skip.has(user.id)) continue
     try {
       const source = await loadUserBsxSource(user.id)
       if (!source) continue
@@ -74,14 +101,16 @@ async function schedulerLoop(): Promise<void> {
 
   while (true) {
     try {
-      await autoSyncInventories()
+      const hbtoolUsers = await hbtoolUserIds()
+      await syncFromHbtool(hbtoolUsers)
+      await autoSyncInventories(hbtoolUsers)
 
       // Cleanup old API call log entries (>48h)
       const cleaned = await cleanupOldLogs()
       if (cleaned > 0) console.log(`[Scheduler] Cleanup: ${cleaned} alte API-Log-Einträge entfernt`)
 
       // Import new BSX order files (read-only scan, dedup via UNIQUE INDEX)
-      await checkBsxOrders()
+      await checkBsxOrders(hbtoolUsers)
     } catch (err) {
       console.error('[Scheduler] Fehler:', err instanceof Error ? err.message : err)
     }
