@@ -329,6 +329,11 @@ export async function POST(request: Request) {
     // Neue Verbindung -> ETag + Fehler zuruecksetzen (Cursor bleibt, Bestellungen sind idempotent)
     data.hbtoolInventoryEtag = null;
     data.hbtoolLastError = null;
+    // Quelle aus -> Kontingent-Zuteilung vergessen, manuelles Limit gilt wieder
+    if (data.hbtoolUrl === null || data.hbtoolTokenEnc === null) {
+      const { clearHbtoolBudget } = await import("@/lib/hbtool-budget");
+      await clearHbtoolBudget(userId);
+    }
   }
 
   const updated = await prisma.user.update({

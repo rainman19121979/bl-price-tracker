@@ -16,6 +16,8 @@ async function hbtoolUserIds(): Promise<Set<number>> {
   return new Set(users.map(u => u.id))
 }
 
+const lastBudgetLog = new Map<number, string>()
+
 async function syncFromHbtool(userIds: Set<number>): Promise<void> {
   for (const userId of Array.from(userIds)) {
     const r = await runHbtoolSync(userId)
@@ -28,6 +30,15 @@ async function syncFromHbtool(userIds: Set<number>): Promise<void> {
       console.log(`[hb-tool] User ${userId} Bestellungen: ${ord.ordersSeen} gesehen, ${ord.ordersWritten} geschrieben, ${ord.ordersRemoved} entfernt, ${ord.itemsSkipped} Positionen übersprungen`)
     }
     if (r.error) console.error(`[hb-tool] User ${userId}: ${r.error}`)
+    if (r.budgetError) console.error(`[hb-tool] User ${userId} Kontingent: ${r.budgetError}`)
+    if (r.budget) {
+      const b = r.budget
+      const key = `${b.trackerGrant24h}/${b.reason ?? ''}`
+      if (lastBudgetLog.get(userId) !== key) {
+        console.log(`[hb-tool] User ${userId} Kontingent: Zuteilung ${b.trackerGrant24h}/24h (Tracker ${b.trackerUsed24h}, hb-tool ${b.hbtoolUsed24h ?? '?'}, Konto ${b.totalUsed24h ?? '?'}/${b.accountLimit ?? '?'}${b.reason ? `, ${b.reason}` : ''})`)
+        lastBudgetLog.set(userId, key)
+      }
+    }
   }
 }
 

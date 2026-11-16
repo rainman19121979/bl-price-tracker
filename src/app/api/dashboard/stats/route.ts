@@ -1,4 +1,5 @@
 import { countOverdueCalls } from "@/lib/crawl-backlog";
+import { getEffectiveBudget } from "@/lib/hbtool-budget";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
@@ -66,7 +67,11 @@ export async function GET() {
   const doneTodayStock = doneTodayStockResult[0].count;
 
   const requestsToday = await getUsageForKeys(apiKeys.map(k => k.id));
-  const dailyLimit = apiKeys.reduce((s, k) => s + k.dailyLimit, 0);
+  // Gemeinsames Kontingent von hb-tool: Zuteilung ersetzt Limit + Schaetzung
+  const hbtoolBudget = await getEffectiveBudget(userId);
+  const dailyLimit = hbtoolBudget
+    ? hbtoolBudget.effectiveGrant
+    : apiKeys.reduce((s, k) => s + k.dailyLimit, 0);
   const partsNeedUpdate = withoutPrice + stalePrice;
 
   // Missstand-Klassifikation (priority-basiert, jeder Lot faellt in genau
@@ -138,7 +143,7 @@ export async function GET() {
   const b = breakdown[0];
 
   // Estimated external calls (from per-key externalCalls JSON settings)
-  const externalCallsPerDay = await getExternalCallCount(userId);
+  const externalCallsPerDay = hbtoolBudget ? 0 : await getExternalCallCount(userId);
 
   // Estimated cycle (full speed): lots × 2 (sold+stock) / available daily calls
   const availableCalls = Math.max(1, dailyLimit - externalCallsPerDay);
@@ -187,6 +192,7 @@ export async function GET() {
     maintenanceCallsPerDay,
     boostCallsPerDay,
     catchUpCallsPerDay,
+    hbtoolBudget,
     overdueCalls,
     etaDays,
     callsPerDay24h,

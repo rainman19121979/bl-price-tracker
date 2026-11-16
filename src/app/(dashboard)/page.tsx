@@ -32,6 +32,10 @@ interface Stats {
   hasSellerCountryFilter?: boolean;
   boostCallsPerDay?: number;
   catchUpCallsPerDay?: number;
+  hbtoolBudget?: {
+    effectiveGrant: number; expired: boolean; reason: string | null;
+    accountLimit: number | null; hbtoolUsed24h: number | null; totalUsed24h: number | null;
+  } | null;
 }
 
 export default function DashboardPage() {
@@ -88,6 +92,15 @@ export default function DashboardPage() {
           <p className="mt-0.5 text-xs text-gray-400">
             {fmt(stats.requestsToday)} Tracker{stats.externalCallsPerDay > 0 && ` + ~${fmt(stats.externalCallsPerDay)} extern`} — verbleibend: ~{fmt(Math.max(0, stats.dailyLimit - totalEstimated))}
           </p>
+          {stats.hbtoolBudget && (
+            <p className={`mt-0.5 text-xs ${stats.hbtoolBudget.expired ? "text-red-600" : "text-gray-500"}`}>
+              {stats.hbtoolBudget.expired
+                ? `Zuteilung von hb-tool abgelaufen — Notwert ${fmt(stats.hbtoolBudget.effectiveGrant)}/24h`
+                : `Zuteilung von hb-tool${stats.hbtoolBudget.reason && stats.hbtoolBudget.reason !== "normal" ? ` (${stats.hbtoolBudget.reason})` : ""}`}
+              {stats.hbtoolBudget.totalUsed24h != null && stats.hbtoolBudget.accountLimit != null &&
+                ` · Konto gesamt ${fmt(stats.hbtoolBudget.totalUsed24h)} / ${fmt(stats.hbtoolBudget.accountLimit)} (hb-tool ${fmt(stats.hbtoolBudget.hbtoolUsed24h ?? 0)})`}
+            </p>
+          )}
           <div className="mt-2 flex h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
             <div className="h-full bg-blue-500 transition-all" style={{ width: `${Math.min(100, (stats.requestsToday / stats.dailyLimit) * 100)}%` }} />
             {stats.externalCallsPerDay > 0 && (

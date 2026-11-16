@@ -4,6 +4,7 @@ import { findOrCreatePart } from './bsx-orders'
 import { findPart } from './find-part'
 import { recomputeAllLotsForUser, recomputeLotPricing } from './lot-pricing'
 import { hbtoolGet, HbtoolError, loadUserHbtoolSource, type HbtoolSource } from './hbtool-source'
+import { fetchHbtoolBudget, type HbtoolBudget } from './hbtool-budget'
 
 // ---------------------------------------------------------------------------
 // Inventar + Bestellungen aus hb-tool uebernehmen.
@@ -403,6 +404,9 @@ export interface HbtoolSyncResult {
   inventory: HbtoolInventoryResult | null
   orders: HbtoolOrdersResult | null
   error: string | null
+  /** BL-Kontingent-Zuteilung; null = hb-tool hat den Endpunkt (noch) nicht */
+  budget?: HbtoolBudget | null
+  budgetError?: string | null
 }
 
 export async function runHbtoolSync(
@@ -426,7 +430,17 @@ export async function runHbtoolSync(
     errors.push(`Bestellungen: ${err instanceof Error ? err.message : String(err)}`)
   }
 
+  // Kontingent-Zuteilung: Fehler hier sind nicht fatal (alte Zuteilung gilt
+  // bis validUntil, danach Notwert) und landen nicht in hbtoolLastError.
+  let budget: HbtoolBudget | null = null
+  let budgetError: string | null = null
+  try {
+    budget = await fetchHbtoolBudget(userId, source)
+  } catch (err) {
+    budgetError = err instanceof Error ? err.message : String(err)
+  }
+
   const error = errors.length > 0 ? errors.join(' · ') : null
   await prisma.user.update({ where: { id: userId }, data: { hbtoolLastError: error } })
-  return { inventory, orders, error }
+  return { inventory, orders, error, budget, budgetError }
 }

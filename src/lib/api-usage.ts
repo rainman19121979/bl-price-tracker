@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/db'
+import { getEffectiveBudget } from '@/lib/hbtool-budget'
 
 const WINDOW_MS = 24 * 60 * 60 * 1000 // 24 hours
 
@@ -64,8 +65,18 @@ export async function getExternalCallCount(userId?: number): Promise<number> {
   if (!userId) return 0
   const keys = await prisma.userApiKey.findMany({
     where: { userId, isValid: true },
-    select: { externalCalls: true },
+    select: { externalCalls: true, dailyLimit: true },
   })
+
+  // Gemeinsames Kontingent: teilt hb-tool zu, ersetzt das die Schaetzung.
+  // Alle Budget-Pruefungen rechnen `dailyLimit - eigene - extern`; mit
+  // extern = dailyLimit - Zuteilung ergibt das ueberall `Zuteilung - eigene`.
+  const budget = await getEffectiveBudget(userId)
+  if (budget) {
+    const limit = keys.reduce((s, k) => s + k.dailyLimit, 0)
+    return Math.max(0, limit - budget.effectiveGrant)
+  }
+
   let total = 0
   for (const k of keys) {
     if (!k.externalCalls) continue
