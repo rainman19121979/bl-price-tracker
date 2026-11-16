@@ -5,6 +5,7 @@ import { logApiCall, getUsageByKey, getExternalCallCount } from '@/lib/api-usage
 import { redis } from '@/lib/redis'
 import { recomputeAllLotsForPart } from '@/lib/lot-pricing'
 import { getCountryFilters } from '@/lib/user-settings'
+import { countOverdueCalls } from '@/lib/crawl-backlog'
 
 const MIN_DELAY_MS = 2000
 
@@ -104,11 +105,25 @@ async function calculateDelay(): Promise<number> {
     break  // fuer Solo-Instanz reicht der erste User; bei Multi-User addiert
   }
 
-  const totalCallsPerDay = maintenanceCallsPerDay + missstandCallsPerDay
+  // Nachholen: ueberfaellige Lots (aelter als freshDays, z.B. nach einem
+  // BL-Ausfall). Ohne Zusatz laeuft der Crawler genau im Erhaltungstempo und
+  // schleppt einen Rueckstand ewig mit. Restliches Boost-Budget (80 % des
+  // freien Budgets minus Missstand-Boost) -> Rueckstand in ~1 Tag abbauen.
+  // findNextJob nimmt ueberfaellige Lots in der Rotation ohnehin zuerst.
+  let catchUpCallsPerDay = 0
+  const freeBudget = Math.max(0, totalLimit - externalCalls - maintenanceCallsPerDay)
+  const boostLeft = Math.max(0, Math.floor(freeBudget * 0.80) - missstandCallsPerDay)
+  if (boostLeft > 0) {
+    const overdueCalls = await countOverdueCalls(userIds, freshDays)
+    catchUpCallsPerDay = Math.min(boostLeft, overdueCalls)
+  }
+
+  const totalCallsPerDay = maintenanceCallsPerDay + missstandCallsPerDay + catchUpCallsPerDay
   const delay = Math.round((86400 / Math.max(1, totalCallsPerDay)) * 1000)
 
-  const boostLabel = missstandCallsPerDay > 0
-    ? ` + ${missstandCallsPerDay} Boost (Missstaende)` : ''
+  const boostLabel = (missstandCallsPerDay > 0
+    ? ` + ${missstandCallsPerDay} Boost (Missstaende)` : '')
+    + (catchUpCallsPerDay > 0 ? ` + ${catchUpCallsPerDay} Nachholen (ueberfaellig)` : '')
   console.log(`[Crawler] Erhaltungsmodus: ${maintenanceCallsPerDay} Calls/Tag${boostLabel} fuer ${nonSetLots} Parts/Minifigs + ${setLots} SETs (×3 wg. C/I/S) in ${freshDays} Tagen`)
   return Math.max(MIN_DELAY_MS, delay)
 }

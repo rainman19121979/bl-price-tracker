@@ -20,6 +20,13 @@ export interface SyncResult {
  * Uses 1 API call (getInventory).
  */
 export async function syncBricklinkInventory(userId: number): Promise<SyncResult> {
+  // Sperre: ist hb-tool die Inventar-Quelle, darf der BL-Stand nicht drueber-
+  // schreiben (und BL soll nicht doppelt abgefragt werden).
+  const src = await prisma.user.findUnique({ where: { id: userId }, select: { hbtoolUrl: true, hbtoolTokenEnc: true } })
+  if (src?.hbtoolUrl && src.hbtoolTokenEnc) {
+    throw new Error('Inventar kommt aus hb-tool; BL-Inventar-Sync ist fuer diesen User gesperrt.')
+  }
+
   const apiKey = await prisma.userApiKey.findFirst({
     where: { userId, isValid: true },
     orderBy: { createdAt: 'desc' },

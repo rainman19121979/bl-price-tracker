@@ -55,7 +55,12 @@ export default function WatchlistPage() {
       const res = await fetch("/api/inventory/sync-now", { method: "POST" });
       const data = await res.json();
       if (res.ok) {
-        setMessage({ type: "success", text: `Sync fertig in ${Math.round((data.durationMs ?? 0) / 1000)}s: +${data.added ?? 0} neu, ${data.updated ?? 0} aktualisiert, -${data.removed ?? 0} entfernt` });
+        const secs = Math.round((data.durationMs ?? 0) / 1000);
+        const counts = `+${data.added ?? 0} neu, ${data.updated ?? 0} aktualisiert, -${data.removed ?? 0} entfernt`;
+        const text = data.source === "hbtool"
+          ? `Von hb-tool geholt in ${secs}s: ${data.notModified ? "Bestand unverändert" : counts}${data.ordersWritten ? `, ${data.ordersWritten} Bestellungen aktualisiert` : ""}${data.warning ? ` (Hinweis: ${data.warning})` : ""}`
+          : `Sync mit BrickLink fertig in ${secs}s: ${counts}`;
+        setMessage({ type: data.warning ? "error" : "success", text });
         // Full reload of watchlist since inventory changed
         pageRef.current = 1;
         setItems([]);

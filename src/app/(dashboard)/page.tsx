@@ -31,6 +31,7 @@ interface Stats {
   };
   hasSellerCountryFilter?: boolean;
   boostCallsPerDay?: number;
+  catchUpCallsPerDay?: number;
 }
 
 export default function DashboardPage() {
@@ -165,6 +166,11 @@ export default function DashboardPage() {
               <p className="mt-1 text-xs text-gray-500">
                 bis restliche {fmt(stats.partsNeedUpdate)} Lots gecrawlt ({fmt(stats.callsPerDay24h)} Calls/Tag aktuell)
               </p>
+              {(stats.catchUpCallsPerDay ?? 0) > 0 && (
+                <p className="mt-1 text-xs text-yellow-700">
+                  Nachholen aktiv: {fmt(stats.maintenanceCallsPerDay)} Erhaltung + {fmt(stats.catchUpCallsPerDay!)} Calls/Tag fuer Ueberfaellige
+                </p>
+              )}
               <div className="mt-2 h-1.5 w-full rounded-full bg-gray-100">
                 <div className="h-full rounded-full bg-blue-500 transition-all"
                   style={{ width: `${Math.min(100, ((stats.watchlistCount - stats.partsNeedUpdate) / stats.watchlistCount) * 100)}%` }} />

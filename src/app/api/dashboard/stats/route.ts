@@ -1,3 +1,4 @@
+import { countOverdueCalls } from "@/lib/crawl-backlog";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
@@ -166,6 +167,13 @@ export async function GET() {
     boostCallsPerDay = Math.min(boostBudget, b.country_mismatch_count * 2);
   }
 
+  // Nachholen ueberfaelliger Lots (spiegelt calculateDelay): Rest des
+  // 80%-Boost-Budgets nach dem Missstand-Boost.
+  const freeBudget = Math.max(0, dailyLimit - externalCallsPerDay - maintenanceCallsPerDay);
+  const boostLeft = Math.max(0, Math.floor(freeBudget * 0.80) - boostCallsPerDay);
+  const overdueCalls = await countOverdueCalls([userId], freshDays);
+  const catchUpCallsPerDay = Math.min(boostLeft, overdueCalls);
+
   return NextResponse.json({
     watchlistCount,
     withoutPrice,
@@ -178,6 +186,8 @@ export async function GET() {
     estimatedCycleDays,
     maintenanceCallsPerDay,
     boostCallsPerDay,
+    catchUpCallsPerDay,
+    overdueCalls,
     etaDays,
     callsPerDay24h,
     partsWithPrice: watchlistCount - partsNeedUpdate,
